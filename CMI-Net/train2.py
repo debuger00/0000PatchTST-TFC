@@ -29,8 +29,9 @@ class CBLossConfig:
 def train(train_loader, network, optimizer, epoch, loss_function, samples_per_cls):
     start = time.time()
     network.train()
-    train_acc_process = []
-    train_loss_process = []
+    total_correct = 0
+    total_samples = 0
+    total_loss = 0.0
 
     for batch_index, (images, labels) in enumerate(train_loader):
         images, labels = images.to(device), labels.to(device)
@@ -39,8 +40,6 @@ def train(train_loader, network, optimizer, epoch, loss_function, samples_per_cl
         try:
             outputs = network(images)
             loss_type = "focal"
-            
-           
             
             # 使用动态权重的CB_loss
             loss = CB_loss(labels, outputs, samples_per_cls, 5, loss_type, args.beta, args.gamma)
@@ -76,26 +75,23 @@ def train(train_loader, network, optimizer, epoch, loss_function, samples_per_cl
             continue
 
         _, preds = outputs.max(1)
-        correct_n = preds.eq(labels).sum()
-        accuracy_iter = correct_n.float() / len(labels)
+        total_correct += preds.eq(labels).sum().item()
+        total_samples += len(labels)
+        total_loss += loss.item()
 
-        train_acc_process.append(accuracy_iter.cpu().numpy().tolist())
-        train_loss_process.append(loss.item())
+    # 计算整个epoch的平均准确率和损失
+    epoch_accuracy = total_correct / total_samples  # 保持为小数形式
+    epoch_loss = total_loss / len(train_loader)
 
-    # 打印信息时不用设备移动
-    print('Training Epoch: {epoch} [{total_samples}]\tTrain_accuracy: {:.4f}\tLoss: {:0.4f}\tLR: {:0.6f}'.format(
-            np.mean(train_acc_process),
-            np.mean(train_loss_process),
+    print('Training Epoch: {epoch} [{total}/{total}]\tTrain_accuracy: {:.4f}\tLoss: {:0.4f}\tLR: {:0.6f}'.format(
+            epoch_accuracy,
+            epoch_loss,
             optimizer.param_groups[0]['lr'],
             epoch=epoch,
-            total_samples=len(train_loader.dataset)
+            total=len(train_loader.dataset)
     ))
 
-    mean_acc = np.mean(train_acc_process)
-    mean_loss = np.mean(train_loss_process)
-    
-    # 返回训练指标
-    return network, mean_acc, mean_loss
+    return network, epoch_accuracy, epoch_loss
 
 @torch.no_grad()
 def eval_training(valid_loader, network, loss_function, samples_per_cls, cb_config, epoch=0):
@@ -149,6 +145,21 @@ def eval_training(valid_loader, network, loss_function, samples_per_cls, cb_conf
     print('Classification Report:')
     print(report)
 
+    # 打印混淆矩阵
+    print('\nConfusion Matrix - Epoch {}:'.format(epoch))
+    matrix = confusion_matrix(class_target, class_predict)
+    
+    # 打印列索引
+    n_classes = len(matrix)
+    print('\t' + '\t'.join([str(i) for i in range(n_classes)]))
+    print('-' * (8 * n_classes))
+    
+    # 打印每一行
+    for i in range(n_classes):
+        row = [str(x) for x in matrix[i]]
+        print(f'{i}\t' + '\t'.join(row))
+    print()  # 添加空行以提高可读性
+
     accuracy = correct.float() / len(valid_loader.dataset)
     avg_loss = valid_loss / len(valid_loader.dataset)
     f1 = f1_score(class_target, class_predict, average='macro', zero_division=0)
@@ -172,11 +183,11 @@ if __name__ == '__main__':
     parser.add_argument('--lr', type=float, default=0.001, help='initial learning rate')
     parser.add_argument('--epoch', type=int, default=100, help='total training epoches')
     parser.add_argument('--seed',type=int, default=10, help='seed')
-    parser.add_argument('--gamma', type=float, default=2.8, help='the gamma of focal loss')
-    parser.add_argument('--beta', type=float, default=0.99, help='the beta of class balanced loss')
-    parser.add_argument('--weight_d', type=float, default=0.0001, help='weight decay for regularization')
+    parser.add_argument('--gamma', type=float, default=5, help='the gamma of focal loss')
+    parser.add_argument('--beta', type=float, default=0.999, help='the beta of class balanced loss')
+    parser.add_argument('--weight_d', type=float, default=0.0000, help='weight decay for regularization')
     parser.add_argument('--save_path',type=str, default='setting0', help='saved path of each setting') #
-    parser.add_argument('--data_path',type=str, default='E:\\program\\aaa_DL_project\\0000PatchTST-TFC\\CMI-Net\\data\\new_goat_25hz_3axis.pt', help='saved path of input data')
+    parser.add_argument('--data_path',type=str, default='C:\\Users\\10025\\Desktop\\0000PatchTST-TFC-main\\0000PatchTST-TFC-main\\CMI-Net\\data\\new_goat_25hz_3axis.pt', help='saved path of input data')
     args = parser.parse_args()
 
     # 创建配置对象
@@ -452,7 +463,7 @@ if __name__ == '__main__':
                 print(f"Epoch {epoch}, Batch {batch_index}, Loss: {loss.item():.4f}, LR: {optimizer.param_groups[0]['lr']:.6f}")
         
         # 计算训练指标
-        train_acc = 100. * correct / total
+        train_acc = correct / total  # 不乘以100，保持小数形式
         train_loss = running_loss / len(train_loader)
         
         # 更新学习率
