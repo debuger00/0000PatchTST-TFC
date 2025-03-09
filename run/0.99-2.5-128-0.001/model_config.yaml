@@ -1,0 +1,41 @@
+model_name: PatchTST
+model_architecture:
+  layers:
+  - name: model
+    type: PatchTST_backbone
+    parameters: 418849
+  - name: dim_adjust
+    type: Linear
+    parameters: 512
+    in_features: 3
+    out_features: 128
+    bias: true
+  - name: attention_pool
+    type: Sequential
+    parameters: 641
+  - name: classifier
+    type: Sequential
+    parameters: 901
+  total_parameters: 420903
+  trainable_parameters: 420900
+training_config:
+  batch_size: 128
+  learning_rate: 0.001
+  epochs: 100
+  seed: 10
+  weight_decay: 1.0e-05
+  beta: 0.99
+  gamma: 2.5
+  gpu: true
+  optimizer: AdamW
+  loss_function: CB_loss with focal
+  scheduler: LambdaLR with warmup and cosine decay
+performance_metrics:
+  best_accuracy: 0
+  best_epoch: 0
+  final_metrics:
+    accuracy: 0
+    f1_score: 0
+    precision: 0
+    recall: 0
+    kappa: 0
