@@ -203,8 +203,8 @@ if __name__ == '__main__':
     parser.add_argument('--beta',type=float, default=0.9999, help='the beta of class balanced loss')
     parser.add_argument('--weight_d',type=float, default=0.0000, help='weight decay for regularization')  # 权重衰减 系数 
     parser.add_argument('--save_path',type=str, default='setting0', help='saved path of each setting') #
-    # parser.add_argument('--data_path',type=str, default='E:\\program\\aaa_DL_project\\0000PatchTST-TFC\\CMI-Net\\data\\new_goat_25hz_3axis.pt', help='saved path of input data')
-    parser.add_argument('--data_path',type=str, default='/data1/wangyonghua/program/0000PatchTST-TFC/CMI-Net/data/new_goat_25hz_3axis.pt', help='saved path of input data')
+    parser.add_argument('--data_path',type=str, default='E:\\program\\aaa_DL_project\\0000PatchTST-TFC\\CMI-Net\\data\\new_goat_25hz_3axis.pt', help='saved path of input data')
+    # parser.add_argument('--data_path',type=str, default='/data1/wangyonghua/program/0000PatchTST-TFC/CMI-Net/data/new_goat_25hz_3axis.pt', help='saved path of input data')
     args = parser.parse_args()
 
     device = torch.device("cuda:0" if args.gpu > 0 and torch.cuda.is_available() else "cpu") # 条件运算符，如果 args.gpu > 0 并且 torch.cuda.is_available() 为 True，则使用 GPU，否则使用 CPU
@@ -284,8 +284,10 @@ if __name__ == '__main__':
     fig1=plt.figure(figsize=(12,9))
     plt.title('Accuracy',font_1)
     index_train = list(range(1,len(Train_Accuracy)+1))
+    # 将 Valid_Accuracy 从 GPU 移动到 CPU
+    valid_accuracy_cpu = [acc.cpu().numpy() for acc in Valid_Accuracy] ########### 将 Valid_Accuracy 从 GPU 移动到 CPU  画图修改
     plt.plot(index_train,Train_Accuracy,color='skyblue',label='train_accuracy')
-    plt.plot(index_train,Valid_Accuracy,color='red',label='valid_accuracy')
+    plt.plot(index_train,valid_accuracy_cpu,color='red',label='valid_accuracy')  ###这里使用valid_accuracy_cpu 而不是 Valid_Accuracy 画图修改
     plt.legend(fontsize=16)
     plt.xticks(fontsize=12)
     plt.yticks(fontsize=12)
