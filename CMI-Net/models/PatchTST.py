@@ -24,7 +24,7 @@ class Configs:
         # 模型结构参数
         self.e_layers = 2        # encoder层数
         self.n_heads = 8         # 注意力头数
-        self.d_model = 128       # 模型维度
+        self.d_model = 64       # 模型维度
         self.d_ff = 256         # 前馈网络维度
         self.dropout = 0.2       # dropout率
         self.fc_dropout = 0.2    # 全连接层dropout率
@@ -56,6 +56,10 @@ class Configs:
         # 分类器特定参数
         self.classifier_dropout = 0.2  # 分类器dropout率
         self.use_weighted_loss = False # 是否使用加权损失（处理类别不平衡）
+
+        # 1D卷积参数
+        self.conv1d_kernel_size = 3  # 1D卷积核大小
+        self.conv1d_out_channels = 32  # 1D卷积输出通道数
 
 
 class ActionDiscriminatorModule(nn.Module):
@@ -209,6 +213,7 @@ class PatchTSTNet(nn.Module):
     def forward(self, x, return_probs=True):           # x: [Batch, Input length, Channel]
         # 1. 去掉第二维的1，转换为 [batch_size, 50, 3]
         x = x.squeeze(1)
+       
         if self.decomposition:
             res_init, trend_init = self.decomp_module(x)
             res_init, trend_init = res_init.permute(0,2,1), trend_init.permute(0,2,1)  
