@@ -22,23 +22,27 @@ class Configs:
         self.pred_len = 24       # 预测序列长度
         
         # 模型结构参数
-        self.e_layers = 3        # encoder层数
+        self.e_layers = 2        # encoder层数
         self.n_heads = 8         # 注意力头数
         self.d_model = 128       # 模型维度
         self.d_ff = 256         # 前馈网络维度
-        self.dropout = 0.1       # dropout率
-        self.fc_dropout = 0.1    # 全连接层dropout率
-        self.head_dropout = 0.1  # 输出头dropout率
+        self.dropout = 0.2       # dropout率
+        self.fc_dropout = 0.2    # 全连接层dropout率
+        self.head_dropout = 0.2  # 输出头dropout率
         
         # Patch相关参数 
-        self.patch_len = 16      # patch长度
-        self.stride = 8          # patch步长
+        self.patch_len = 4      # patch长度
+        self.stride = 2          # patch步长
         self.padding_patch = 'end'  # patch填充方式
+        
+        # 1D卷积参数
+        self.conv1d_kernel_size = 3  # 1D卷积核大小
+        self.conv1d_out_channels = 32  # 1D卷积输出通道数
         
         # 数据处理参数
         self.individual = False   # 是否独立处理每个特征
-        self.revin = True        # 是否使用RevIN
-        self.affine = True       # RevIN是否使用affine变换
+        self.revin = False        # 是否使用RevIN
+        self.affine = False       # RevIN是否使用affine变换
         self.subtract_last = False  # 是否减去最后一个值
         
         # 分解相关参数
@@ -50,8 +54,43 @@ class Configs:
         
         
         # 分类器特定参数
-        self.classifier_dropout = 0.1  # 分类器dropout率
+        self.classifier_dropout = 0.2  # 分类器dropout率
         self.use_weighted_loss = False # 是否使用加权损失（处理类别不平衡）
+
+
+class ActionDiscriminatorModule(nn.Module):
+    def __init__(self, input_dim):
+        super().__init__()
+        # 修改为输出5维向量，只在相关类别上有值
+        self.standing_vs_grazing = nn.Sequential(
+            nn.Linear(input_dim, 128),
+            nn.BatchNorm1d(128),
+            nn.ReLU(),
+            nn.Dropout(0.3),
+            nn.Linear(128, 5)  # 改为5分类，但只关注standing和grazing
+        )
+        
+        self.running_vs_trotting = nn.Sequential(
+            nn.Linear(input_dim, 128),
+            nn.BatchNorm1d(128),
+            nn.ReLU(),
+            nn.Dropout(0.3),
+            nn.Linear(128, 5)  # 改为5分类，但只关注running和trotting
+        )
+    
+    def forward(self, features, action_pair):
+        if action_pair == "standing_grazing":
+            logits = self.standing_vs_grazing(features)
+            # 只保留standing(0)和grazing(2)的logits，其他位置设为0
+            mask = torch.zeros_like(logits)
+            mask[:, [0, 2]] = 1
+            return logits * mask
+        elif action_pair == "running_trotting":
+            logits = self.running_vs_trotting(features)
+            # 只保留running(1)和trotting(3)的logits，其他位置设为0
+            mask = torch.zeros_like(logits)
+            mask[:, [1, 3]] = 1
+            return logits * mask
 
 
 class PatchTSTNet(nn.Module):
@@ -60,7 +99,7 @@ class PatchTSTNet(nn.Module):
                  d_k:Optional[int]=None,             # 注意力机制中key的维度
                  d_v:Optional[int]=None,             # 注意力机制中value的维度  
                  norm:str='BatchNorm',               # 归一化方法，默认使用BatchNorm
-                 attn_dropout:float=0.,              # 注意力层的dropout率
+                 attn_dropout:float=0.1,              # 注意力层的dropout率
                  act:str="gelu",                     # 激活函数，默认使用GELU
                  key_padding_mask:bool='auto',       # 是否使用key padding mask
                  padding_var:Optional[int]=None,     # padding的值
@@ -103,12 +142,20 @@ class PatchTSTNet(nn.Module):
         decomposition = configs.decomposition
         kernel_size = configs.kernel_size
         
+        # 添加1D卷积层
+        self.conv1d = nn.Sequential(
+            nn.Conv1d(c_in, configs.conv1d_out_channels, 
+                     kernel_size=configs.conv1d_kernel_size, 
+                     padding='same'),
+            nn.BatchNorm1d(configs.conv1d_out_channels),
+            nn.ReLU()
+        )
         
         # model
         self.decomposition = decomposition
         if self.decomposition:
             self.decomp_module = series_decomp(kernel_size)
-            self.model_trend = PatchTST_backbone(c_in=c_in, context_window = context_window, target_window=target_window, patch_len=patch_len, stride=stride, 
+            self.model_trend = PatchTST_backbone(c_in=configs.conv1d_out_channels, context_window = context_window, target_window=target_window, patch_len=patch_len, stride=stride, 
                                   max_seq_len=max_seq_len, n_layers=n_layers, d_model=d_model,
                                   n_heads=n_heads, d_k=d_k, d_v=d_v, d_ff=d_ff, norm=norm, attn_dropout=attn_dropout,
                                   dropout=dropout, act=act, key_padding_mask=key_padding_mask, padding_var=padding_var, 
@@ -116,7 +163,7 @@ class PatchTSTNet(nn.Module):
                                   pe=pe, learn_pe=learn_pe, fc_dropout=fc_dropout, head_dropout=head_dropout, padding_patch = padding_patch,
                                   pretrain_head=pretrain_head, head_type=head_type, individual=individual, revin=revin, affine=affine,
                                   subtract_last=subtract_last, verbose=verbose, **kwargs)
-            self.model_res = PatchTST_backbone(c_in=c_in, context_window = context_window, target_window=target_window, patch_len=patch_len, stride=stride, 
+            self.model_res = PatchTST_backbone(c_in=configs.conv1d_out_channels, context_window = context_window, target_window=target_window, patch_len=patch_len, stride=stride, 
                                   max_seq_len=max_seq_len, n_layers=n_layers, d_model=d_model,
                                   n_heads=n_heads, d_k=d_k, d_v=d_v, d_ff=d_ff, norm=norm, attn_dropout=attn_dropout,
                                   dropout=dropout, act=act, key_padding_mask=key_padding_mask, padding_var=padding_var, 
@@ -125,7 +172,7 @@ class PatchTSTNet(nn.Module):
                                   pretrain_head=pretrain_head, head_type=head_type, individual=individual, revin=revin, affine=affine,
                                   subtract_last=subtract_last, verbose=verbose, **kwargs)
         else:
-            self.model = PatchTST_backbone(c_in=c_in, context_window = context_window, target_window=target_window, patch_len=patch_len, stride=stride, 
+            self.model = PatchTST_backbone(c_in=configs.conv1d_out_channels, context_window = context_window, target_window=target_window, patch_len=patch_len, stride=stride, 
                                   max_seq_len=max_seq_len, n_layers=n_layers, d_model=d_model,
                                   n_heads=n_heads, d_k=d_k, d_v=d_v, d_ff=d_ff, norm=norm, attn_dropout=attn_dropout,
                                   dropout=dropout, act=act, key_padding_mask=key_padding_mask, padding_var=padding_var, 
@@ -134,19 +181,30 @@ class PatchTSTNet(nn.Module):
                                   pretrain_head=pretrain_head, head_type=head_type, individual=individual, revin=revin, affine=affine,
                                   subtract_last=subtract_last, verbose=verbose, **kwargs)
 
-        # 修改分类头
+        # 计算特征维度
+        # patch数量 = (seq_len - patch_len) / stride + 1
+        # 特征维度 = conv1d_out_channels
+        feature_dim = configs.conv1d_out_channels
+        
+        # 修改分类头，增加特征提取能力
         self.classifier = nn.Sequential(
-            # 将输入展平
-            # nn.Linear(configs.d_model*configs.enc_in, configs.d_model*configs.enc_in),
-            # nn.ReLU(),
-            # nn.Dropout(configs.classifier_dropout),
-            # nn.Linear(configs.d_model*configs.enc_in, configs.num_classes)
-
-            nn.Linear(768, 768),
+            # 深度特征提取
+            nn.Linear(feature_dim, 512),
+            nn.BatchNorm1d(512),
             nn.ReLU(),
-            nn.Dropout(configs.classifier_dropout),
-            nn.Linear(768, configs.num_classes)
+            nn.Dropout(0.3),
+            
+            nn.Linear(512, 256),
+            nn.BatchNorm1d(256),
+            nn.ReLU(),
+            nn.Dropout(0.3),
+            
+            # 最终分类层
+            nn.Linear(256, configs.num_classes)
         )
+        
+        self.action_discriminator = ActionDiscriminatorModule(feature_dim)
+        self.conv1d_out_channels = configs.conv1d_out_channels
     
     def forward(self, x, return_probs=True):           # x: [Batch, Input length, Channel]
         # 1. 去掉第二维的1，转换为 [batch_size, 50, 3]
@@ -160,21 +218,27 @@ class PatchTSTNet(nn.Module):
             x = x.permute(0,2,1)    # x: [Batch, Input length, Channel]
         else:
             x = x.permute(0,2,1)    # x: [Batch, Channel, Input length]
-            x = self.model(x)
-            x = x.permute(0,2,1)    # x: [Batch, Input length, Channel]
+            # 应用1D卷积
+            x = self.conv1d(x)  # [Batch, conv_out_channels, Input length]
+            x = self.model(x)   # [Batch, conv_out_channels, num_patches]
+            x = x.reshape(x.shape[0], -1)  # [Batch, conv_out_channels * num_patches]
+            x = x.mean(dim=-1, keepdim=True)  # [Batch, 1]
+            x = x.expand(-1, self.conv1d_out_channels)  # [Batch, conv_out_channels]
         
-        # x = x.permute(0,2,1) # x: [Batch, Channel, Input length]
-        # x = x.reshape(x.size(0), -1)# x: [Batch, Channel * Input length]
-
-        x = x.mean(dim=-1) # [Batch, Input length]
-        # print("x.shape:",x.shape)
-        logits = self.classifier(x)  # [Batch, num_classes]
+        # 主分类器的logits
+        main_logits = self.classifier(x)  # [Batch, num_classes]
+        
+        # 获取特定动作对的辅助logits
+        standing_grazing_logits = self.action_discriminator(x, "standing_grazing")
+        running_trotting_logits = self.action_discriminator(x, "running_trotting")
+        
+        # 融合所有logits
+        final_logits = main_logits + 0.5 * standing_grazing_logits + 0.5 * running_trotting_logits
         
         # 根据需要返回概率值或logits
         if return_probs:
-            probs = F.softmax(logits, dim=-1)
-            return probs
-        return logits
+            return F.softmax(final_logits, dim=-1)
+        return final_logits
 
 def PatchTST():
     configs = Configs()
