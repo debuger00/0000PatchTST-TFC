@@ -22,23 +22,23 @@ class Configs:
         self.pred_len = 24       # 预测序列长度
         
         # 模型结构参数
-        self.e_layers = 2        # encoder层数
+        self.e_layers = 1     # encoder层数
         self.n_heads = 8         # 注意力头数
-        self.d_model = 128       # 模型维度
+        self.d_model = 64       # 模型维度
         self.d_ff = 256         # 前馈网络维度
         self.dropout = 0.1       # dropout率
         self.fc_dropout = 0.1    # 全连接层dropout率
         self.head_dropout = 0.1  # 输出头dropout率
         
         # Patch相关参数 
-        self.patch_len = 16      # patch长度
-        self.stride = 8          # patch步长
+        self.patch_len = 4      # patch长度
+        self.stride = 2          # patch步长
         self.padding_patch = 'end'  # patch填充方式
         
         # 数据处理参数
         self.individual = False   # 是否独立处理每个特征
-        self.revin = True        # 是否使用RevIN
-        self.affine = True       # RevIN是否使用affine变换
+        self.revin = False       # 是否使用RevIN    ###############################
+        self.affine = False       # RevIN是否使用affine变换  ###########################
         self.subtract_last = False  # 是否减去最后一个值
         
         # 分解相关参数
@@ -52,6 +52,10 @@ class Configs:
         # 分类器特定参数
         self.classifier_dropout = 0.1  # 分类器dropout率
         self.use_weighted_loss = False # 是否使用加权损失（处理类别不平衡）
+
+        # 1D卷积参数
+        self.conv1d_kernel_size = 3  # 1D卷积核大小
+        self.conv1d_out_channels = 32  # 1D卷积输出通道数
 
 
 class PatchTSTNet(nn.Module):
@@ -103,6 +107,16 @@ class PatchTSTNet(nn.Module):
         decomposition = configs.decomposition
         kernel_size = configs.kernel_size
         
+        # MLP_len= ((50-configs.patch_len)//configs.stride+2)*configs.d_model,
+
+         # 添加1D卷积层
+        self.conv1d = nn.Sequential(
+            nn.Conv1d(c_in, configs.conv1d_out_channels, 
+                     kernel_size=configs.conv1d_kernel_size, 
+                     padding='same'),
+            nn.BatchNorm1d(configs.conv1d_out_channels),
+            nn.ReLU()
+        )
         
         # model
         self.decomposition = decomposition
@@ -141,16 +155,17 @@ class PatchTSTNet(nn.Module):
             # nn.ReLU(),
             # nn.Dropout(configs.classifier_dropout),
             # nn.Linear(configs.d_model*configs.enc_in, configs.num_classes)
-
-            nn.Linear(768, 768),
+            
+            nn.Linear(1600, 800),
             nn.ReLU(),
             nn.Dropout(configs.classifier_dropout),
-            nn.Linear(768, configs.num_classes)
+            nn.Linear(800, configs.num_classes)
         )
     
     def forward(self, x, return_probs=True):           # x: [Batch, Input length, Channel]
         # 1. 去掉第二维的1，转换为 [batch_size, 50, 3]
         x = x.squeeze(1)
+       
         if self.decomposition:
             res_init, trend_init = self.decomp_module(x)
             res_init, trend_init = res_init.permute(0,2,1), trend_init.permute(0,2,1)  
@@ -166,6 +181,9 @@ class PatchTSTNet(nn.Module):
         # x = x.permute(0,2,1) # x: [Batch, Channel, Input length]
         # x = x.reshape(x.size(0), -1)# x: [Batch, Channel * Input length]
 
+         # 应用1D卷积
+        x = self.conv1d(x)
+        
         x = x.mean(dim=-1) # [Batch, Input length]
         # print("x.shape:",x.shape)
         logits = self.classifier(x)  # [Batch, num_classes]
