@@ -242,8 +242,19 @@ if __name__ == '__main__':
     # loss_function = nn.CrossEntropyLoss(weight=weight_train)
     loss_function_CE = nn.CrossEntropyLoss() # 交叉熵损失函数
     optimizer = optim.Adam(net.parameters(), lr=args.lr) # 使用 Adam 优化器来训练模型，并指定学习率 args.lr
-    train_scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=20, gamma=0.1)    #  创建一个学习率调度器 StepLR，每 20 个 epoch 调整学习率，缩小比例 gamma=0.1
+    
+    # 设置最小学习率
+    min_lr = 1e-6  # 你可以根据需要调整这个值
 
+    # 使用 ReduceLROnPlateau 调度器
+    train_scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, 
+        mode='min', 
+        factor=0.1, 
+        patience=10, 
+        min_lr=min_lr, 
+        verbose=True
+    )
 
     checkpoint_path = os.path.join(settings.CHECKPOINT_PATH, args.net, args.save_path, settings.TIME_NOW) #它会根据操作系统的路径分隔符（例如，Windows 上是反斜杠 \，而在 Unix/Linux 上是正斜杠 /）来正确地构建路径。
     #use tensorboard
@@ -269,7 +280,9 @@ if __name__ == '__main__':
     for epoch in range(1, args.epoch + 1):
         net = train(train_loader, net, optimizer, epoch, loss_function=loss_function_CE, samples_per_cls=number_train)
         acc, validation_loss, fs_valid = eval_training(valid_loader, net, loss_function_CE, epoch)
-        train_scheduler.step()  # 去掉 epoch 参数，并放到最后调用
+        
+        # 使用验证损失来更新学习率调度器
+        train_scheduler.step(validation_loss)  # 传入验证损失
 
         #start to save best performance model (according to the accuracy on validation dataset) after learning rate decay to 0.01
         if epoch > settings.MILESTONES[0] and best_acc < acc:
