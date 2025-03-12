@@ -8,4 +8,5 @@ datasets
 *.log
 *.pt
 *.zip
-
+PatchTST.py
+*.pptx
