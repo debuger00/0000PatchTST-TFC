@@ -31,8 +31,8 @@ class Configs:
         self.head_dropout = 0.2  # 输出头dropout率
         
         # Patch相关参数 
-        self.patch_len = 4      # patch长度
-        self.stride = 2          # patch步长
+        self.patch_len = 5      # patch长度
+        self.stride = 3          # patch步长
         self.padding_patch = 'end'  # patch填充方式
         
         # 1D卷积参数
@@ -62,39 +62,6 @@ class Configs:
         self.conv1d_out_channels = 32  # 1D卷积输出通道数
 
 
-class ActionDiscriminatorModule(nn.Module):
-    def __init__(self, input_dim):
-        super().__init__()
-        # 修改为输出5维向量，只在相关类别上有值
-        self.standing_vs_grazing = nn.Sequential(
-            nn.Linear(input_dim, 128),
-            nn.BatchNorm1d(128),
-            nn.ReLU(),
-            nn.Dropout(0.3),
-            nn.Linear(128, 5)  # 改为5分类，但只关注standing和grazing
-        )
-        
-        self.running_vs_trotting = nn.Sequential(
-            nn.Linear(input_dim, 128),
-            nn.BatchNorm1d(128),
-            nn.ReLU(),
-            nn.Dropout(0.3),
-            nn.Linear(128, 5)  # 改为5分类，但只关注running和trotting
-        )
-    
-    def forward(self, features, action_pair):
-        if action_pair == "standing_grazing":
-            logits = self.standing_vs_grazing(features)
-            # 只保留standing(0)和grazing(2)的logits，其他位置设为0
-            mask = torch.zeros_like(logits)
-            mask[:, [0, 2]] = 1
-            return logits * mask
-        elif action_pair == "running_trotting":
-            logits = self.running_vs_trotting(features)
-            # 只保留running(1)和trotting(3)的logits，其他位置设为0
-            mask = torch.zeros_like(logits)
-            mask[:, [1, 3]] = 1
-            return logits * mask
 
 
 class PatchTSTNet(nn.Module):
@@ -185,30 +152,18 @@ class PatchTSTNet(nn.Module):
                                   pretrain_head=pretrain_head, head_type=head_type, individual=individual, revin=revin, affine=affine,
                                   subtract_last=subtract_last, verbose=verbose, **kwargs)
 
-        # 计算特征维度
-        # patch数量 = (seq_len - patch_len) / stride + 1
-        # 特征维度 = conv1d_out_channels
-        feature_dim = configs.conv1d_out_channels
         
         # 修改分类头，增加特征提取能力
         self.classifier = nn.Sequential(
-            # 深度特征提取
-            nn.Linear(feature_dim, 512),
-            nn.BatchNorm1d(512),
+
+            nn.Linear(1088, 544),
             nn.ReLU(),
-            nn.Dropout(0.3),
-            
-            nn.Linear(512, 256),
-            nn.BatchNorm1d(256),
-            nn.ReLU(),
-            nn.Dropout(0.3),
+            nn.Dropout(configs.classifier_dropout),
             
             # 最终分类层
-            nn.Linear(256, configs.num_classes)
+            nn.Linear(544, configs.num_classes)
         )
         
-        self.action_discriminator = ActionDiscriminatorModule(feature_dim)
-        self.conv1d_out_channels = configs.conv1d_out_channels
     
     def forward(self, x, return_probs=True):           # x: [Batch, Input length, Channel]
         # 1. 去掉第二维的1，转换为 [batch_size, 50, 3]
@@ -223,27 +178,17 @@ class PatchTSTNet(nn.Module):
             x = x.permute(0,2,1)    # x: [Batch, Input length, Channel]
         else:
             x = x.permute(0,2,1)    # x: [Batch, Channel, Input length]
-            # 应用1D卷积
-            x = self.conv1d(x)  # [Batch, conv_out_channels, Input length]
             x = self.model(x)   # [Batch, conv_out_channels, num_patches]
-            x = x.reshape(x.shape[0], -1)  # [Batch, conv_out_channels * num_patches]
-            x = x.mean(dim=-1, keepdim=True)  # [Batch, 1]
-            x = x.expand(-1, self.conv1d_out_channels)  # [Batch, conv_out_channels]
+            x = x.permute(0,2,1)
         
+        x = x.mean(dim=-1)
         # 主分类器的logits
-        main_logits = self.classifier(x)  # [Batch, num_classes]
-        
-        # 获取特定动作对的辅助logits
-        standing_grazing_logits = self.action_discriminator(x, "standing_grazing")
-        running_trotting_logits = self.action_discriminator(x, "running_trotting")
-        
-        # 融合所有logits
-        final_logits = main_logits + 0.5 * standing_grazing_logits + 0.5 * running_trotting_logits
+        logits = self.classifier(x)  # [Batch, num_classes]
         
         # 根据需要返回概率值或logits
         if return_probs:
-            return F.softmax(final_logits, dim=-1)
-        return final_logits
+            return F.softmax(logits, dim=-1)
+        return logits
 
 def PatchTST():
     configs = Configs()

@@ -6,7 +6,8 @@ from PatchTST import PatchTSTNet
 import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from config_files.SleepEEG_Configs_PatchTST import Config
+# from config_files.SleepEEG_Configs_PatchTST import Config
+from config_files.AAR_Configs import Config
 
 # """Two contrastive encoders"""
 # class TFC(nn.Module):
@@ -63,14 +64,14 @@ class TFC(nn.Module):
         
         # 保持原有的投影头
         self.projector_t = nn.Sequential(
-            nn.Linear(2816, 512 ),  # 使用d_model作为输入维度
+            nn.Linear(768, 512 ),  # 使用d_model作为输入维度
             nn.BatchNorm1d(512),
             nn.ReLU(),
             nn.Linear(512, 128)
         )
         
         self.projector_f = nn.Sequential(
-            nn.Linear(2816, 512),  # 使用d_model作为输入维度
+            nn.Linear(768, 512),  # 使用d_model作为输入维度
             nn.BatchNorm1d(512),
             nn.ReLU(),
             nn.Linear(512, 128)
@@ -81,16 +82,17 @@ class TFC(nn.Module):
         
         """Time-based encoder"""
         # 输入形状是 [batch_size, channel, seq_len]
-        h_time = self.encoder_t.model(x_in_t)  
+        # print(f"000时间域特征 h_time shape: {x_in_t.shape}")  # 应该是 [128, 3,50]
+        h_time = self.encoder_t(x_in_t)  
         #输出 h_time shape: torch.Size([128, 1, 178])
-        # print(f"000时间域特征 h_time shape: {h_time.shape}")  # 应该是 [128, 1,2816]
+        
         h_time = h_time.flatten(1)  # [batch_size, feature_dim]  等价于 h_time = h_time.reshape(h_time.shape[0], -1)
         # print(f"001时间域特征 h_time shape: {h_time.shape}")  # 应该是 [128, 2816]
         """Cross-space projector"""
         z_time = self.projector_t(h_time)
         
         """Frequency-based encoder"""
-        h_freq = self.encoder_f.model(x_in_f)  # 不需要permute了
+        h_freq = self.encoder_f(x_in_f)  # 不需要permute了
         h_freq = h_freq.flatten(1)  # [batch_size, feature_dim]
         
         """Cross-space projector"""

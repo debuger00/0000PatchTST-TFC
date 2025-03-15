@@ -25,9 +25,9 @@ parser.add_argument('--seed', default=42, type=int, help='seed value')
 parser.add_argument('--training_mode', default='pre_train', type=str,
                     help='pre_train, fine_tune_test')
 
-parser.add_argument('--pretrain_dataset', default='SleepEEG', type=str,
+parser.add_argument('--pretrain_dataset', default='AAR', type=str,
                     help='Dataset of choice: SleepEEG, FD_A, HAR, ECG,AAR1') ##预训练数据集选择
-parser.add_argument('--target_dataset', default='Epilepsy', type=str,
+parser.add_argument('--target_dataset', default='AAR', type=str,
                     help='Dataset of choice: Epilepsy, FD_B, Gesture, EMG,AAR2') ##微调数据集选择
 
 parser.add_argument('--logs_save_dir', default='../experiments_logs', type=str,
@@ -86,14 +86,18 @@ logger.debug(f'Method:  {method}')
 logger.debug(f'Mode:    {training_mode}')
 logger.debug("=" * 45)
 
-# Load datasets
+# Load datasets#################################################### 加载数据集
 sourcedata_path = f"../../datasets/{pretrain_dataset}"
 targetdata_path = f"../../datasets/{targetdata}"
 subset = True  # if subset= true, use a subset for debugging.
-train_dl, valid_dl, test_dl = data_generator(sourcedata_path, targetdata_path, configs, training_mode, subset = subset)
+# train_dl, valid_dl, test_dl = data_generator(sourcedata_path, targetdata_path, configs, training_mode, subset = subset)
+train_dl = data_generator(sourcedata_path, targetdata_path, configs, training_mode, subset = subset)
+test_dl = None
+valid_dl = None
+
 logger.debug("Data loaded ...")
 
-# Load Model
+# Load Model#################################################### 加载模型
 """Here are two models, one basemodel, another is temporal contrastive model"""
 TFC_model = TFC(configs).to(device)
 classifier = target_classifier(configs).to(device)

@@ -70,7 +70,7 @@ class Load_Dataset(Dataset):
             X_train = X_train.permute(0, 2, 1)
 
         # 对齐不同数据集的时序长度
-        X_train = X_train[:, :1, :int(config.TSlength_aligned)]
+        X_train = X_train[:, :3, :int(config.TSlength_aligned)]
 
         # 如果使用子集进行调试
         if subset == True:
@@ -112,26 +112,27 @@ class Load_Dataset(Dataset):
 
 def data_generator(sourcedata_path, targetdata_path, configs, training_mode, subset=True):
     train_dataset = torch.load(os.path.join(sourcedata_path, "train.pt"))
-    finetune_dataset = torch.load(os.path.join(targetdata_path, "train.pt"))  # train.pt
-    test_dataset = torch.load(os.path.join(targetdata_path, "test.pt"))  # test.pt
+    # finetune_dataset = torch.load(os.path.join(targetdata_path, "train.pt"))  # train.pt
+    # test_dataset = torch.load(os.path.join(targetdata_path, "test.pt"))  # test.pt
     """In pre-training: 
     train_dataset: [371055, 1, 178] from SleepEEG.    
     finetune_dataset: [60, 1, 178], test_dataset: [11420, 1, 178] from Epilepsy"""
 
     # subset = True # if true, use a subset for debugging.
     train_dataset = Load_Dataset(train_dataset, configs, training_mode, target_dataset_size=configs.batch_size, subset=subset) # for self-supervised, the data are augmented here
-    finetune_dataset = Load_Dataset(finetune_dataset, configs, training_mode, target_dataset_size=configs.target_batch_size, subset=subset)
-    test_dataset = Load_Dataset(test_dataset, configs, training_mode,
-                                target_dataset_size=configs.target_batch_size, subset=False)
+    # finetune_dataset = Load_Dataset(finetune_dataset, configs, training_mode, target_dataset_size=configs.target_batch_size, subset=subset)
+    # test_dataset = Load_Dataset(test_dataset, configs, training_mode,
+    #                             target_dataset_size=configs.target_batch_size, subset=False)
 
     train_loader = torch.utils.data.DataLoader(dataset=train_dataset, batch_size=configs.batch_size,
                                                shuffle=True, drop_last=configs.drop_last,
                                                num_workers=0)
-    finetune_loader = torch.utils.data.DataLoader(dataset=finetune_dataset, batch_size=configs.target_batch_size,
-                                               shuffle=True, drop_last=configs.drop_last,
-                                               num_workers=0)
-    test_loader = torch.utils.data.DataLoader(dataset=test_dataset, batch_size=configs.target_batch_size,
-                                              shuffle=True, drop_last=False,
-                                              num_workers=0)
+    # finetune_loader = torch.utils.data.DataLoader(dataset=finetune_dataset, batch_size=configs.target_batch_size,
+    #                                            shuffle=True, drop_last=configs.drop_last,
+    #                                            num_workers=0)
+    # test_loader = torch.utils.data.DataLoader(dataset=test_dataset, batch_size=configs.target_batch_size,
+    #                                           shuffle=True, drop_last=False,
+    #                                           num_workers=0)
 
-    return train_loader, finetune_loader, test_loader
+    # return train_loader, finetune_loader, test_loader
+    return train_loader
