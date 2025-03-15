@@ -10,7 +10,7 @@ class My_Dataset(Dataset):
 
     def __init__(self, pathway, data_id, transform=None):  
         # pathway是数据集文件路径，data_ id 数据标识符用于区分训练集，测试集和验证集，transform表示对数据进行的预处理
-        X_train, X_valid, X_test, Y_train, Y_valid, Y_test = torch.load(pathway)
+        X_train, X_valid, X_test, Y_train, Y_valid, Y_test = torch.load(pathway,weights_only=True)
         if data_id == 0:#训练集
             self.data, self.labels = X_train, Y_train
         elif data_id == 1:
