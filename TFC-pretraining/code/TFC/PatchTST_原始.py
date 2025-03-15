@@ -8,11 +8,9 @@ from torch import Tensor
 import torch.nn.functional as F
 import numpy as np
 
-from models.layers.PatchTST_backbone import PatchTST_backbone
-from models.layers.PatchTST_layers import series_decomp
+from layers.PatchTST_backbone import PatchTST_backbone
+from layers.PatchTST_layers import series_decomp
 
-# from layers.PatchTST_backbone import PatchTST_backbone
-# from layers.PatchTST_layers import series_decomp
 
 class Configs:
     def __init__(self):
@@ -22,22 +20,18 @@ class Configs:
         self.pred_len = 24       # 预测序列长度
         
         # 模型结构参数
-        self.e_layers = 2        # encoder层数
+        self.e_layers = 3        # encoder层数
         self.n_heads = 8         # 注意力头数
-        self.d_model = 64       # 模型维度
+        self.d_model = 128       # 模型维度
         self.d_ff = 256         # 前馈网络维度
-        self.dropout = 0.2       # dropout率
-        self.fc_dropout = 0.2    # 全连接层dropout率
-        self.head_dropout = 0.2  # 输出头dropout率
+        self.dropout = 0.1       # dropout率
+        self.fc_dropout = 0.1    # 全连接层dropout率
+        self.head_dropout = 0.1  # 输出头dropout率
         
         # Patch相关参数 
-        self.patch_len = 4      # patch长度
-        self.stride = 2          # patch步长
+        self.patch_len = 16      # patch长度
+        self.stride = 8          # patch步长
         self.padding_patch = 'end'  # patch填充方式
-        
-        # 1D卷积参数
-        self.conv1d_kernel_size = 3  # 1D卷积核大小
-        self.conv1d_out_channels = 32  # 1D卷积输出通道数
         
         # 数据处理参数
         self.individual = False   # 是否独立处理每个特征
@@ -50,18 +44,12 @@ class Configs:
         self.kernel_size = 25      # 分解核大小
 
      # 修改预测相关参数为分类参数
-        self.num_classes = 5     # 分类类别数
+        self.num_classes = 6     # 分类类别数
         
         
         # 分类器特定参数
-        self.classifier_dropout = 0.2  # 分类器dropout率
+        self.classifier_dropout = 0.1  # 分类器dropout率
         self.use_weighted_loss = False # 是否使用加权损失（处理类别不平衡）
-
-        # 1D卷积参数
-        self.conv1d_kernel_size = 3  # 1D卷积核大小
-        self.conv1d_out_channels = 32  # 1D卷积输出通道数
-
-
 
 
 class PatchTSTNet(nn.Module):
@@ -70,7 +58,7 @@ class PatchTSTNet(nn.Module):
                  d_k:Optional[int]=None,             # 注意力机制中key的维度
                  d_v:Optional[int]=None,             # 注意力机制中value的维度  
                  norm:str='BatchNorm',               # 归一化方法，默认使用BatchNorm
-                 attn_dropout:float=0.1,              # 注意力层的dropout率
+                 attn_dropout:float=0.,              # 注意力层的dropout率
                  act:str="gelu",                     # 激活函数，默认使用GELU
                  key_padding_mask:bool='auto',       # 是否使用key padding mask
                  padding_var:Optional[int]=None,     # padding的值
@@ -113,20 +101,12 @@ class PatchTSTNet(nn.Module):
         decomposition = configs.decomposition
         kernel_size = configs.kernel_size
         
-        # 添加1D卷积层
-        self.conv1d = nn.Sequential(
-            nn.Conv1d(c_in, configs.conv1d_out_channels, 
-                     kernel_size=configs.conv1d_kernel_size, 
-                     padding='same'),
-            nn.BatchNorm1d(configs.conv1d_out_channels),
-            nn.ReLU()
-        )
         
         # model
         self.decomposition = decomposition
         if self.decomposition:
             self.decomp_module = series_decomp(kernel_size)
-            self.model_trend = PatchTST_backbone(c_in=configs.conv1d_out_channels, context_window = context_window, target_window=target_window, patch_len=patch_len, stride=stride, 
+            self.model_trend = PatchTST_backbone(c_in=c_in, context_window = context_window, target_window=target_window, patch_len=patch_len, stride=stride, 
                                   max_seq_len=max_seq_len, n_layers=n_layers, d_model=d_model,
                                   n_heads=n_heads, d_k=d_k, d_v=d_v, d_ff=d_ff, norm=norm, attn_dropout=attn_dropout,
                                   dropout=dropout, act=act, key_padding_mask=key_padding_mask, padding_var=padding_var, 
@@ -134,7 +114,7 @@ class PatchTSTNet(nn.Module):
                                   pe=pe, learn_pe=learn_pe, fc_dropout=fc_dropout, head_dropout=head_dropout, padding_patch = padding_patch,
                                   pretrain_head=pretrain_head, head_type=head_type, individual=individual, revin=revin, affine=affine,
                                   subtract_last=subtract_last, verbose=verbose, **kwargs)
-            self.model_res = PatchTST_backbone(c_in=configs.conv1d_out_channels, context_window = context_window, target_window=target_window, patch_len=patch_len, stride=stride, 
+            self.model_res = PatchTST_backbone(c_in=c_in, context_window = context_window, target_window=target_window, patch_len=patch_len, stride=stride, 
                                   max_seq_len=max_seq_len, n_layers=n_layers, d_model=d_model,
                                   n_heads=n_heads, d_k=d_k, d_v=d_v, d_ff=d_ff, norm=norm, attn_dropout=attn_dropout,
                                   dropout=dropout, act=act, key_padding_mask=key_padding_mask, padding_var=padding_var, 
@@ -143,7 +123,7 @@ class PatchTSTNet(nn.Module):
                                   pretrain_head=pretrain_head, head_type=head_type, individual=individual, revin=revin, affine=affine,
                                   subtract_last=subtract_last, verbose=verbose, **kwargs)
         else:
-            self.model = PatchTST_backbone(c_in=configs.conv1d_out_channels, context_window = context_window, target_window=target_window, patch_len=patch_len, stride=stride, 
+            self.model = PatchTST_backbone(c_in=c_in, context_window = context_window, target_window=target_window, patch_len=patch_len, stride=stride, 
                                   max_seq_len=max_seq_len, n_layers=n_layers, d_model=d_model,
                                   n_heads=n_heads, d_k=d_k, d_v=d_v, d_ff=d_ff, norm=norm, attn_dropout=attn_dropout,
                                   dropout=dropout, act=act, key_padding_mask=key_padding_mask, padding_var=padding_var, 
@@ -152,35 +132,21 @@ class PatchTSTNet(nn.Module):
                                   pretrain_head=pretrain_head, head_type=head_type, individual=individual, revin=revin, affine=affine,
                                   subtract_last=subtract_last, verbose=verbose, **kwargs)
 
-        # 计算特征维度
-        # patch数量 = (seq_len - patch_len) / stride + 1
-        # 特征维度 = conv1d_out_channels
-        feature_dim = configs.conv1d_out_channels
-        
-        # 修改分类头，增加特征提取能力
+        # 修改分类头
         self.classifier = nn.Sequential(
-            # 深度特征提取
-            nn.Linear(feature_dim, 512),
-            nn.BatchNorm1d(512),
+            # 将输入展平
+            # nn.Linear(configs.d_model*configs.enc_in, configs.d_model*configs.enc_in),
+            # nn.ReLU(),
+            # nn.Dropout(configs.classifier_dropout),
+            # nn.Linear(configs.d_model*configs.enc_in, configs.num_classes)
+
+            nn.Linear(2304, 2304),
             nn.ReLU(),
-            nn.Dropout(0.3),
-            
-            nn.Linear(512, 256),
-            nn.BatchNorm1d(256),
-            nn.ReLU(),
-            nn.Dropout(0.3),
-            
-            # 最终分类层
-            nn.Linear(256, configs.num_classes)
+            nn.Dropout(configs.classifier_dropout),
+            nn.Linear(2304, configs.num_classes)
         )
-        
-        self.action_discriminator = ActionDiscriminatorModule(feature_dim)
-        self.conv1d_out_channels = configs.conv1d_out_channels
     
     def forward(self, x, return_probs=True):           # x: [Batch, Input length, Channel]
-        # 1. 去掉第二维的1，转换为 [batch_size, 50, 3]
-        x = x.squeeze(1)
-       
         if self.decomposition:
             res_init, trend_init = self.decomp_module(x)
             res_init, trend_init = res_init.permute(0,2,1), trend_init.permute(0,2,1)  
@@ -190,27 +156,21 @@ class PatchTSTNet(nn.Module):
             x = x.permute(0,2,1)    # x: [Batch, Input length, Channel]
         else:
             x = x.permute(0,2,1)    # x: [Batch, Channel, Input length]
-            # 应用1D卷积
-            x = self.conv1d(x)  # [Batch, conv_out_channels, Input length]
-            x = self.model(x)   # [Batch, conv_out_channels, num_patches]
-            x = x.reshape(x.shape[0], -1)  # [Batch, conv_out_channels * num_patches]
-            x = x.mean(dim=-1, keepdim=True)  # [Batch, 1]
-            x = x.expand(-1, self.conv1d_out_channels)  # [Batch, conv_out_channels]
+            x = self.model(x)
+            x = x.permute(0,2,1)    # x: [Batch, Input length, Channel]
         
-        # 主分类器的logits
-        main_logits = self.classifier(x)  # [Batch, num_classes]
-        
-        # 获取特定动作对的辅助logits
-        standing_grazing_logits = self.action_discriminator(x, "standing_grazing")
-        running_trotting_logits = self.action_discriminator(x, "running_trotting")
-        
-        # 融合所有logits
-        final_logits = main_logits + 0.5 * standing_grazing_logits + 0.5 * running_trotting_logits
+        # x = x.permute(0,2,1) # x: [Batch, Channel, Input length]
+        # x = x.reshape(x.size(0), -1)# x: [Batch, Channel * Input length]
+
+        x = x.mean(dim=-1) # [Batch, Input length]
+
+        logits = self.classifier(x)  # [Batch, num_classes]
         
         # 根据需要返回概率值或logits
         if return_probs:
-            return F.softmax(final_logits, dim=-1)
-        return final_logits
+            probs = F.softmax(logits, dim=-1)
+            return probs
+        return logits
 
 def PatchTST():
     configs = Configs()
@@ -218,42 +178,49 @@ def PatchTST():
 
 # 使用示例
 if __name__ == "__main__":
+
+    # configs = Configs()
+    # model = PatchTSTNet(configs)
+    
+    # # 测试模型
+    # batch_size = 32
+    # x = torch.randn(batch_size, configs.seq_len, configs.enc_in)  # [批次, 序列长度, 特征维度]
+    # output = model(x)
+    # print(output.shape)
+    
+    # ... existing code ...
+
     configs = Configs()
     model = PatchTSTNet(configs)
     
     # 测试模型并打印每一步的形状
     batch_size = 32
-    # 创建新的输入形状 [batch_size, 1, 50, 3]
-    x = torch.randn(batch_size, 1, configs.seq_len, configs.enc_in)
-    print(f"原始输入形状: {x.shape}")  # 预期: [32, 1, 50, 3]
+    x = torch.randn(batch_size, configs.seq_len, configs.enc_in)  # [批次, 序列长度, 特征维度]
+    print(f"输入数据形状: {x.shape}")  # 预期: [32, 200, 3]
     
     # 测试数据流经模型的形状变化
     with torch.no_grad():
-        # 1. 去掉第二维的1，转换为 [batch_size, 50, 3]
-        x = x.squeeze(1)
-        print(f"去除维度1后形状: {x.shape}")  # 预期: [32, 50, 3]
-        
-        # 2. 转置为 [Batch, Channel, Length]
+        # 1. 首先转置为 [Batch, Channel, Length]
         x_permuted = x.permute(0, 2, 1)
-        print(f"第一次转置后形状: {x_permuted.shape}")  # 预期: [32, 3, 50]
+        print(f"第一次转置后形状: {x_permuted.shape}")  # 预期: [32, 3, 200]
         
-        # 3. 通过backbone
+        # 2. 通过backbone
         if not model.decomposition:
             backbone_output = model.model(x_permuted)
-            print(f"Backbone输出形状: {backbone_output.shape}")
+            print(f"Backbone输出形状: {backbone_output.shape}")  # 预期: [32, 3, d_model]
             
-            # 4. 转置回 [Batch, Length, Channel]
+            # 3. 转置回 [Batch, Length, Channel]
             output_permuted = backbone_output.permute(0, 2, 1)
             print(f"第二次转置后形状: {output_permuted.shape}")
             
-            # 5. 计算序列维度的平均值
-            x = output_permuted.mean(dim= -1)  # [Batch, Channel]
-            print(f"平均池化后形状: {x.shape}")
+            # 4. 重新排列为一维向量
+            flattened = output_permuted.reshape(output_permuted.size(0), -1)
+            print(f"展平后形状: {flattened.shape}")  # 预期: [32, 3*d_model]
             
-            # 6. 最终分类输出
-            final_output = model.classifier(x)
-            print(f"分类器输出形状: {final_output.shape}")  # 预期: [32, num_classes]
+            # 5. 最终分类输出
+            final_output = model.classifier(flattened)
+            print(f"最终输出形状: {final_output.shape}")  # 预期: [32, num_classes]
             
-            # 7. 测试概率输出
+            # 6. 测试概率输出
             probs = F.softmax(final_output, dim=-1)
             print(f"概率输出形状: {probs.shape}")  # 预期: [32, num_classes]

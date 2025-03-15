@@ -34,8 +34,8 @@ def Trainer(model,  model_optimizer, classifier, classifier_optimizer, train_dl,
         torch.save(chkpoint, os.path.join(experiment_log_dir, "saved_models", f'ckp_last.pt'))  ##保存预训练模型
         print('Pretrained model is stored at folder:{}'.format(experiment_log_dir+'saved_models'+'ckp_last.pt'))
 
-    """Fine-tuning and Test"""
-    if training_mode != 'pre_train':
+    """Fine-tuning and Test""" ##################################################### 微调和测试
+    if training_mode != 'pre_train':  
         """fine-tune"""
         print('Fine-tune on Fine-tuning set')
         performance_list = []
@@ -104,43 +104,73 @@ def Trainer(model,  model_optimizer, classifier, classifier_optimizer, train_dl,
     logger.debug("\n################## Training is Done! #########################")
 
 def model_pretrain(model, model_optimizer, criterion, train_loader, config, device, training_mode,):
+    """
+    模型预训练函数。该函数实现了TFC(Time-Frequency Consistency)预训练方法。
+    
+    主要步骤:
+    1. 获取原始时域和频域数据及其增强版本
+    2. 通过模型生成时域和频域的表示向量
+    3. 计算多个对比学习损失:
+       - 时域对比损失(loss_t):同一样本在时域上的原始和增强版本之间的对比
+       - 频域对比损失(loss_f):同一样本在频域上的原始和增强版本之间的对比  
+       - 时频一致性损失(l_TF):原始样本的时域和频域表示之间的对比
+       - 交叉时频一致性损失(loss_c):考虑原始和增强版本之间的时频对比
+    4. 组合所有损失并进行反向传播
+    
+    Args:
+        model: TFC模型
+        model_optimizer: 优化器
+        criterion: 损失函数(此参数实际未使用)
+        train_loader: 训练数据加载器
+        config: 配置参数
+        device: 计算设备(CPU/GPU)
+        training_mode: 训练模式
+        
+    Returns:
+        ave_loss: 平均训练损失
+    """
     total_loss = []
     model.train()
     global loss, loss_t, loss_f, l_TF, loss_c, data_test, data_f_test
 
-    # optimizer
+    # 清空优化器梯度
     model_optimizer.zero_grad()
 
     for batch_idx, (data, labels, aug1, data_f, aug1_f) in enumerate(train_loader):
+        # 数据转移到指定设备
         data, labels = data.float().to(device), labels.long().to(device) # data: [128, 1, 178], labels: [128]
         aug1 = aug1.float().to(device)  # aug1 = aug2 : [128, 1, 178]
         data_f, aug1_f = data_f.float().to(device), aug1_f.float().to(device)  # aug1 = aug2 : [128, 1, 178]
 
-        """Produce embeddings"""
-        h_t, z_t, h_f, z_f = model(data, data_f)
-        h_t_aug, z_t_aug, h_f_aug, z_f_aug = model(aug1, aug1_f)
+        # 生成表示向量
+        h_t, z_t, h_f, z_f = model(data, data_f)  # 原始数据的表示
+        h_t_aug, z_t_aug, h_f_aug, z_f_aug = model(aug1, aug1_f)  # 增强数据的表示
 
-        """Compute Pre-train loss"""
-        """NTXentLoss: normalized temperature-scaled cross entropy loss. From SimCLR"""
+        # 初始化对比学习损失函数
         nt_xent_criterion = NTXentLoss_poly(device, config.batch_size, config.Context_Cont.temperature,
-                                       config.Context_Cont.use_cosine_similarity) # device, 128, 0.2, True
+                                       config.Context_Cont.use_cosine_similarity) 
 
-        loss_t = nt_xent_criterion(h_t, h_t_aug)
-        loss_f = nt_xent_criterion(h_f, h_f_aug)
-        l_TF = nt_xent_criterion(z_t, z_f) # this is the initial version of TF loss
+        # 计算各种对比损失
+        loss_t = nt_xent_criterion(h_t, h_t_aug)  # 时域对比损失
+        loss_f = nt_xent_criterion(h_f, h_f_aug)  # 频域对比损失
+        l_TF = nt_xent_criterion(z_t, z_f)  # 时频一致性损失
 
+        # 计算交叉时频一致性损失
         l_1, l_2, l_3 = nt_xent_criterion(z_t, z_f_aug), nt_xent_criterion(z_t_aug, z_f), nt_xent_criterion(z_t_aug, z_f_aug)
         loss_c = (1 + l_TF - l_1) + (1 + l_TF - l_2) + (1 + l_TF - l_3)
 
-        lam = 0.2
+        # 组合最终损失
+        lam = 0.2  # 损失权重系数
         loss = lam*(loss_t + loss_f) + l_TF
 
+        # 记录损失并进行反向传播
         total_loss.append(loss.item())
         loss.backward()
         model_optimizer.step()
 
     print('Pretraining: overall loss:{}, l_t: {}, l_f:{}, l_c:{}'.format(loss, loss_t, loss_f, l_TF))
 
+    # 计算平均损失
     ave_loss = torch.tensor(total_loss).mean()
 
     return ave_loss

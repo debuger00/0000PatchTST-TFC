@@ -2,7 +2,7 @@
 class Config(object):
     def __init__(self):
         # 模型配置参数
-        self.input_channels = 1  # 输入通道数
+        self.input_channels = 3 # 输入通道数
         self.increased_dim = 1   # 增加的维度
         self.final_out_channels = 128  # 最终输出通道数
         self.num_classes = 5     # 源域分类数量
@@ -15,7 +15,7 @@ class Config(object):
         self.features_len = 127  # 特征长度
         self.features_len_f = self.features_len  # 特征长度(用于fine-tune)
 
-        self.TSlength_aligned = 178  # 对齐后的时间序列长度
+        self.TSlength_aligned = 50  # 对齐后的时间序列长度
 
         self.CNNoutput_channel = 10  # CNN输出通道数,对于Epilepsy模型为10
 
@@ -42,36 +42,34 @@ class Config(object):
 
 ############################################################################################################
          # 基础参数
-        self.enc_in = 1         # 输入特征维度
-        self.seq_len = 178       # 输入序列长度
+        self.enc_in = 3         # 输入特征维度
+        self.seq_len = 50       # 输入序列长度
         self.pred_len = 24       # 预测序列长度
         
         # 模型结构参数
-        self.e_layers = 3        # encoder层数
+        self.e_layers = 2        # encoder层数
         self.n_heads = 8         # 注意力头数
-        self.d_model = 128       # 模型维度
+        self.d_model =  64       # 模型维度
         self.d_ff = 256         # 前馈网络维度
         self.dropout = 0.1       # dropout率
         self.fc_dropout = 0.1    # 全连接层dropout率
         self.head_dropout = 0.1  # 输出头dropout率
         
         # Patch相关参数 
-        self.patch_len = 16      # patch长度
-        self.stride = 8          # patch步长
+        self.patch_len = 8      # patch长度
+        self.stride = 4          # patch步长
         self.padding_patch = 'end'  # patch填充方式
         
         # 数据处理参数
         self.individual = False   # 是否独立处理每个特征
-        self.revin = True        # 是否使用RevIN
-        self.affine = True       # RevIN是否使用affine变换
+        self.revin = False         # 是否使用RevIN
+        self.affine = False        # RevIN是否使用affine变换
         self.subtract_last = False  # 是否减去最后一个值
         
         # 分解相关参数
         self.decomposition = False  # 是否使用分解
         self.kernel_size = 25      # 分解核大小
 
-     # 修改预测相关参数为分类参数
-        self.num_classes = 6     # 分类类别数
         
         
         # 分类器特定参数

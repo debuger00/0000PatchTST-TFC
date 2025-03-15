@@ -1,12 +1,8 @@
 import torch
 
 # Load the .pt file
-tensors1 = torch.load('E:\\program\\aaa_DL_project\\0000PatchTST-TFC\\数据集处理\\cattle8_lgk\\cattle8_1_c.pt')
-tensors2 = torch.load('E:\\program\\aaa_DL_project\\0000PatchTST-TFC\\数据集处理\\cattle8_lgk\\cattle8_2_e.pt')
-
-
-
-
+tensors1 = torch.load('E:\\program\\aaa_DL_project\\0000PatchTST-TFC\\数据集处理\\sheep9_lgk\\sheep_data_1.pt')
+tensors2 = torch.load('E:\\program\\aaa_DL_project\\0000PatchTST-TFC\\数据集处理\\sheep9_lgk\\sheep_data_2.pt')
 
 
 # 合并样本和标签
@@ -44,4 +40,4 @@ for i, tensor in enumerate(tensors):
     else:
         print(f'Tensor {i+1} is not a tensor, it is a {type(tensor)}')
 
-torch.save(tensors, 'E:\\program\\aaa_DL_project\\0000PatchTST-TFC\\数据集处理\\cattle8_lgk\\01cattle_8.pt');
+torch.save(tensors, 'E:\\program\\aaa_DL_project\\0000PatchTST-TFC\\数据集处理\\sheep9_lgk\\04sheep9.pt');

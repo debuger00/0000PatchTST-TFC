@@ -213,12 +213,20 @@ if __name__ == '__main__':
         torch.cuda.manual_seed(args.seed)# 设置 GPU 上的随机数种子，确保在 GPU 上的随机操作（如权重初始化等）也是可重复的
     else:
         torch.manual_seed(args.seed)#  设置 CPU 上的随机数种子，确保在 CPU 上执行的所有与随机性相关的操作都是可重复的
-    
+
+
+
+
     net = get_network(args).to(device)   # get_network 在 utils.py  中 ，把模型搬运到device(GPU)中
+    net.load_state_dict(torch.load("E:\\program\\aaa_DL_project\\0000PatchTST-TFC\\CMI-Net\\预训练权重\\ckp_last.pt"))
+    # 打印模型参数
     # print(net)
     print(f"Model is on device: {next(net.parameters()).device}")
     # print(f"Model is on device: {net.parameters().device}")
     print('Setting: Epoch: {}, Batch size: {}, Learning rate: {:.6f}, gpu:{}, seed:{}'.format(args.epoch, args.b, args.lr, args.gpu, args.seed))
+
+
+
 
     sysstr = platform.system()
     if(sysstr =="Windows"):

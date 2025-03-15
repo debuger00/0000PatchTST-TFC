@@ -158,14 +158,16 @@ def main():
         save_path = os.path.join(current_dir, 'cow6_wyh_dataset.pt')
         
         # Save datasets
-        torch.save({
-            'train_data': train_data,
-            'train_labels': train_labels,
-            'val_data': val_data,
-            'val_labels': val_labels,
-            'test_data': test_data,
-            'test_labels': test_labels
-        }, save_path)
+
+        torch.save([train_data, train_labels, val_data, val_labels, test_data, test_labels], save_path);
+        # torch.save({
+        #     'train_data': train_data,
+        #     'train_labels': train_labels,
+        #     'val_data': val_data,
+        #     'val_labels': val_labels,
+        #     'test_data': test_data,
+        #     'test_labels': test_labels
+        # }, save_path)
         
         print(f"数据集已保存到: {save_path}")
         
