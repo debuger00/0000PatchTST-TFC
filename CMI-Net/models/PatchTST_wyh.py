@@ -24,7 +24,7 @@ class Configs:
         # 模型结构参数
         self.e_layers = 2        # encoder层数
         self.n_heads = 8         # 注意力头数
-        self.d_model = 64       # 模型维度
+        self.d_model = 128       # 模型维度
         self.d_ff = 256         # 前馈网络维度
         self.dropout = 0.2       # dropout率
         self.fc_dropout = 0.2    # 全连接层dropout率
@@ -61,7 +61,12 @@ class Configs:
         self.conv1d_kernel_size = 3  # 1D卷积核大小
         self.conv1d_out_channels = 32  # 1D卷积输出通道数
 
-
+        
+        # 计算特征维度 - 确保结果是整数
+        # 公式1: patch个数 = 取整（（输入序列长度-patch长度）/步长）+ 2
+        patch_num = int((self.seq_len - self.patch_len) / self.stride) + 2
+        # 公式2: 特征维度 = patch个数 * 模型维度
+        self.feature_dim = int(patch_num * self.d_model)  # 特征维
 
 
 class PatchTSTNet(nn.Module):
@@ -113,14 +118,9 @@ class PatchTSTNet(nn.Module):
         decomposition = configs.decomposition
         kernel_size = configs.kernel_size
         
-        # 添加1D卷积层
-        self.conv1d = nn.Sequential(
-            nn.Conv1d(c_in, configs.conv1d_out_channels, 
-                     kernel_size=configs.conv1d_kernel_size, 
-                     padding='same'),
-            nn.BatchNorm1d(configs.conv1d_out_channels),
-            nn.ReLU()
-        )
+        
+        feature_dim = configs.feature_dim
+
         
         # model
         self.decomposition = decomposition
@@ -151,17 +151,18 @@ class PatchTSTNet(nn.Module):
                                   pe=pe, learn_pe=learn_pe, fc_dropout=fc_dropout, head_dropout=head_dropout, padding_patch = padding_patch,
                                   pretrain_head=pretrain_head, head_type=head_type, individual=individual, revin=revin, affine=affine,
                                   subtract_last=subtract_last, verbose=verbose, **kwargs)
+        
 
         
         # 修改分类头，增加特征提取能力
         self.classifier = nn.Sequential(
 
-            nn.Linear(1088, 544),
+            nn.Linear(feature_dim, feature_dim//2),
             nn.ReLU(),
             nn.Dropout(configs.classifier_dropout),
             
             # 最终分类层
-            nn.Linear(544, configs.num_classes)
+            nn.Linear(feature_dim//2, configs.num_classes)
         )
         
     

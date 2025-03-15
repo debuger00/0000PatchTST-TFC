@@ -30,6 +30,41 @@ from utils import get_network, get_mydataloader, get_weighted_mydataloader
 from sklearn.metrics import f1_score, classification_report, confusion_matrix, cohen_kappa_score, recall_score, precision_score
 
 
+def save_model_config(model, args, train_config, save_path):
+    """保存模型配置到YAML文件"""
+    config = {
+        'model_name': args.net,
+        'model_architecture': {
+            'layers': [],
+            'total_parameters': 0,
+            'trainable_parameters': 0
+        },
+        'training_config': {
+            'batch_size': args.b,
+            'learning_rate': args.lr,
+            'epochs': args.epoch,
+            'seed': args.seed,
+            'weight_decay': args.weight_d,
+            'beta': args.beta,
+            'gamma': args.gamma,
+            'gpu': bool(args.gpu),
+            'optimizer': 'AdamW',
+            'loss_function': 'CB_loss with focal',
+            'scheduler': 'LambdaLR with warmup and cosine decay'
+        },
+        'performance_metrics': {
+            'best_accuracy': 0,
+            'best_epoch': 0,
+            'final_metrics': {
+                'accuracy': 0,
+                'f1_score': 0,
+                'precision': 0,
+                'recall': 0,
+                'kappa': 0
+            }
+        }
+    }
+
 
 def train(train_loader, network, optimizer, epoch, loss_function, samples_per_cls):
     """
@@ -197,11 +232,11 @@ if __name__ == '__main__':
     parser.add_argument('--gpu', type = int, default=1, help='use gpu or not')  # 选择是否使用 GPU（1 表示使用 GPU，0 表示使用 CPU）。
     parser.add_argument('--b', type=int, default=256, help='batch size for dataloader')
     parser.add_argument('--lr', type=float, default=0.0001, help='initial learning rate')
-    parser.add_argument('--epoch',type=int, default=1, help='total training epoches')
+    parser.add_argument('--epoch',type=int, default=50, help='total training epoches')
     parser.add_argument('--seed',type=int, default=10, help='seed')
-    parser.add_argument('--gamma',type=float, default=2.5, help='the gamma of focal loss')
+    parser.add_argument('--gamma',type=float, default=3.0, help='the gamma of focal loss')
     parser.add_argument('--beta',type=float, default=0.9999, help='the beta of class balanced loss')
-    parser.add_argument('--weight_d',type=float, default=0.005, help='weight decay for regularization')  # 权重衰减 系数 
+    parser.add_argument('--weight_d',type=float, default=0.1, help='weight decay for regularization')  # 权重衰减 系数 
     parser.add_argument('--save_path',type=str, default='setting0', help='saved path of each setting') #
     # parser.add_argument('--data_path',type=str, default='E:\\program\\aaa_DL_project\\0000PatchTST-TFC\\CMI-Net\\data\\new_goat_25hz_3axis.pt', help='saved path of input data')
     parser.add_argument('--data_path',type=str, default='/data1/wangyonghua/0000PatchTST-TFC/CMI-Net/data/new_goat_25hz_3axis.pt', help='saved path of input data')
@@ -467,6 +502,22 @@ if __name__ == '__main__':
             # plt.show()
 
         show_confusion_matrix(test_target, test_predict)
+
+        # # 创建训练配置字典
+        # train_config = {
+        #     'best_accuracy': best_acc,
+        #     'best_epoch': best_epoch,
+        #     'final_metrics': {
+        #         'accuracy': float(accuracy_test),
+        #         'f1_score': float(fs_test),
+        #         'precision': float(precision_test),
+        #         'recall': float(recall_test),
+        #         'kappa': float(kappa_value)
+        #     }
+        # } 
+
+        #   # 保存模型配置
+        # save_model_config(best_net, args, train_config, checkpoint_path)
     
     if args.gpu:
         print('GPU INFO.....', file=f)
