@@ -116,6 +116,8 @@ def train(train_loader, network, optimizer, epoch, loss_function, samples_per_cl
 
         # 反向传播计算梯度
         loss.backward()
+        
+        torch.nn.utils.clip_grad_norm_(net.parameters(), max_norm=1.0) 
         # 更新模型参数
         optimizer.step()
 
@@ -285,15 +287,24 @@ if __name__ == '__main__':
     # loss_function = nn.CrossEntropyLoss(weight=weight_train)
     loss_function_CE = nn.CrossEntropyLoss() # 交叉熵损失函数
     optimizer = optim.Adam(net.parameters(), lr=args.lr) # 使用 Adam 优化器来训练模型，并指定学习率 args.lr
-    min_lr = 1e-6;
-    # train_scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=20, gamma=0.1)    #  创建一个学习率调度器 StepLR，每 20 个 epoch 调整学习率，缩小比例 gamma=0.1
+    # min_lr = 1e-6;
+    # # train_scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=20, gamma=0.1)    #  创建一个学习率调度器 StepLR，每 20 个 epoch 调整学习率，缩小比例 gamma=0.1
+    # train_scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+    #     optimizer, 
+    #     mode='min', 
+    #     factor=0.1, 
+    #     patience=10, 
+    #     min_lr=min_lr, 
+    #     # verbose=True #verbose=True 打印日志不够灵活，且与用户自定义的日志系统（如 logging 模块或第三方工具）难以兼容。
+    # )
+
     train_scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer, 
-        mode='min', 
-        factor=0.1, 
-        patience=10, 
-        min_lr=min_lr, 
-        # verbose=True #verbose=True 打印日志不够灵活，且与用户自定义的日志系统（如 logging 模块或第三方工具）难以兼容。
+    optimizer, 
+    mode='min', 
+    factor=0.5,       # 学习率每次降低为当前值的50%（原为10%）
+    patience=15,      # 等待15个epoch无改善再降低（原为10）
+    min_lr=1e-5,      # 最低学习率从1e-6提高到1e-5
+    # verbose=True       # 打印学习率更新日志
     )
 
     checkpoint_path = os.path.join(settings.CHECKPOINT_PATH, args.net, args.save_path, settings.TIME_NOW) #它会根据操作系统的路径分隔符（例如，Windows 上是反斜杠 \，而在 Unix/Linux 上是正斜杠 /）来正确地构建路径。
