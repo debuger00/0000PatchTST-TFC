@@ -203,8 +203,8 @@ if __name__ == '__main__':
     parser.add_argument('--beta',type=float, default=0.9999, help='the beta of class balanced loss')
     parser.add_argument('--weight_d',type=float, default=0.005, help='weight decay for regularization')  # 权重衰减 系数 
     parser.add_argument('--save_path',type=str, default='setting0', help='saved path of each setting') #
-    parser.add_argument('--data_path',type=str, default='E:\\program\\aaa_DL_project\\0000PatchTST-TFC\\CMI-Net\\data\\new_goat_25hz_3axis.pt', help='saved path of input data')
-    # parser.add_argument('--data_path',type=str, default='/data1/wangyonghua/0000PatchTST-TFC/CMI-Net/data/new_goat_25hz_3axis.pt', help='saved path of input data')
+    # parser.add_argument('--data_path',type=str, default='E:\\program\\aaa_DL_project\\0000PatchTST-TFC\\CMI-Net\\data\\new_goat_25hz_3axis.pt', help='saved path of input data')
+    parser.add_argument('--data_path',type=str, default='/data1/wangyonghua/0000PatchTST-TFC/CMI-Net/data/new_goat_25hz_3axis.pt', help='saved path of input data')
     args = parser.parse_args()
 
     device = torch.device("cuda:0" if args.gpu > 0 and torch.cuda.is_available() else "cpu") # 条件运算符，如果 args.gpu > 0 并且 torch.cuda.is_available() 为 True，则使用 GPU，否则使用 CPU
@@ -258,7 +258,7 @@ if __name__ == '__main__':
         factor=0.1, 
         patience=10, 
         min_lr=min_lr, 
-        verbose=True
+        # verbose=True #verbose=True 打印日志不够灵活，且与用户自定义的日志系统（如 logging 模块或第三方工具）难以兼容。
     )
 
     checkpoint_path = os.path.join(settings.CHECKPOINT_PATH, args.net, args.save_path, settings.TIME_NOW) #它会根据操作系统的路径分隔符（例如，Windows 上是反斜杠 \，而在 Unix/Linux 上是正斜杠 /）来正确地构建路径。
@@ -367,7 +367,7 @@ if __name__ == '__main__':
     
     ######load the best trained model and test testing data  ，测试函数，推理
     best_net = get_network(args)
-    best_net.load_state_dict(torch.load(best_weights_path))
+    best_net.load_state_dict(torch.load(best_weights_path,weights_only=True))
     
     total_num_paras, trainable_num_paras = get_parameter_number(best_net)
     print('The total number of network parameters = {}'.format(total_num_paras), file=f)
