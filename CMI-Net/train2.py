@@ -17,7 +17,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 import csv
-from sklearn.metrics import classification_report, f1_score, cohen_kappa_score, precision_score, recall_score, confusion_matrix
+import yaml
+from sklearn.metrics import classification_report, f1_score, cohen_kappa_score, precision_score, recall_score, confusion_matrix, precision_recall_curve, average_precision_score, roc_curve, auc
 
 class CBLossConfig:
     def __init__(self, num_classes, loss_type, beta, gamma):
@@ -26,7 +27,7 @@ class CBLossConfig:
         self.beta = beta
         self.gamma = gamma
 
-def train(train_loader, network, optimizer, epoch, loss_function, samples_per_cls):
+def train(train_loader, network, optimizer, epoch, loss_function, samples_per_cls, device):
     start = time.time()
     network.train()
     total_correct = 0
@@ -42,32 +43,21 @@ def train(train_loader, network, optimizer, epoch, loss_function, samples_per_cl
             loss_type = "focal"
             
             # 使用动态权重的CB_loss
-            loss = CB_loss(labels, outputs, samples_per_cls, 5, loss_type, args.beta, args.gamma)
+            loss = CB_loss(
+                labels=labels,
+                logits=outputs,
+                samples_per_cls=samples_per_cls,
+                no_of_classes=args.num_classes,
+                loss_type=loss_type,
+                beta=args.beta,
+                gamma=args.gamma
+            )
             
             if args.weight_d > 0:
                 loss += reg_loss(network)
             
             loss.backward()
             
-            # 计算梯度范数
-            total_norm = 0.0
-            for p in network.parameters():
-                if p.grad is not None:
-                    param_norm = p.grad.data.norm(2)
-                    total_norm += param_norm.item() ** 2
-            total_norm = total_norm ** 0.5
-            
-            # 如果梯度过大，进行缩放
-            if total_norm > 10.0:
-                scale = 10.0 / total_norm
-                for p in network.parameters():
-                    if p.grad is not None:
-                        p.grad.data.mul_(scale)
-            
-            optimizer.step()
-
-            if batch_index % 100 == 0:  # 每100个批次打印一次梯度信息
-                print(f"Epoch {epoch}, Batch {batch_index}, Gradient Norm: {total_norm:.4f}")
 
         except RuntimeError as e:
             print(f"Warning: {str(e)}")
@@ -94,31 +84,32 @@ def train(train_loader, network, optimizer, epoch, loss_function, samples_per_cl
     return network, epoch_accuracy, epoch_loss
 
 @torch.no_grad()
-def eval_training(valid_loader, network, loss_function, samples_per_cls, cb_config, epoch=0):
+def eval_training(valid_loader, net, samples_per_cls, cb_config, device, epoch=0):
     start = time.time()
-    network.eval()
+    net.eval()
 
     n = 0
     valid_loss = 0.0
     correct = 0.0
     class_target = []
     class_predict = []
-
+    
     # 在 GPU 上收集所有数据，减少频繁的 GPU 到 CPU 转换
     for (images, labels) in valid_loader:
         images, labels = images.to(device), labels.to(device)
-
-        outputs = network(images)
+        outputs = net(images)
+        
+        # 使用CB_loss计算验证损失
         loss = CB_loss(
-            labels, 
-            outputs, 
-            samples_per_cls, 
-            cb_config.num_classes, 
-            cb_config.loss_type, 
-            cb_config.beta, 
-            cb_config.gamma
+            labels=labels,
+            logits=outputs,
+            samples_per_cls=samples_per_cls,
+            no_of_classes=args.num_classes,
+            loss_type="focal",
+            beta=cb_config.beta,
+            gamma=cb_config.gamma
         )
-
+        
         valid_loss += loss.item()
         _, preds = outputs.max(1)
         correct += preds.eq(labels).sum()
@@ -174,88 +165,152 @@ def get_parameter_number(net):
     trainable_num = sum(p.numel() for p in net.parameters() if p.requires_grad)
     return total_num, trainable_num
 
+def save_model_config(model, args, train_config, save_path):
+    """保存模型配置到YAML文件"""
+    config = {
+        'model_name': args.net,
+        'model_architecture': {
+            'layers': [],
+            'total_parameters': 0,
+            'trainable_parameters': 0
+        },
+        'training_config': {
+            'batch_size': args.b,
+            'learning_rate': args.lr,
+            'epochs': args.epoch,
+            'seed': args.seed,
+            'weight_decay': args.weight_d,
+            'beta': args.beta,
+            'gamma': args.gamma,
+            'gpu': bool(args.gpu),
+            'optimizer': 'AdamW',
+            'loss_function': 'CB_loss with focal',
+            'scheduler': 'LambdaLR with warmup and cosine decay'
+        },
+        'performance_metrics': {
+            'best_accuracy': 0,
+            'best_epoch': 0,
+            'final_metrics': {
+                'accuracy': 0,
+                'f1_score': 0,
+                'precision': 0,
+                'recall': 0,
+                'kappa': 0
+            }
+        }
+    }
+    
+    # 记录模型层结构
+    for name, module in model.named_children():
+        layer_info = {
+            'name': name,
+            'type': module.__class__.__name__,
+            'parameters': sum(p.numel() for p in module.parameters())
+        }
+        
+        # 对于特定类型的层，添加更多详细信息
+        if isinstance(module, nn.Linear):
+            layer_info.update({
+                'in_features': module.in_features,
+                'out_features': module.out_features,
+                'bias': module.bias is not None
+            })
+        elif isinstance(module, nn.Conv2d):
+            layer_info.update({
+                'in_channels': module.in_channels,
+                'out_channels': module.out_channels,
+                'kernel_size': module.kernel_size,
+                'stride': module.stride,
+                'padding': module.padding
+            })
+        
+        config['model_architecture']['layers'].append(layer_info)
+    
+    # 记录参数总量
+    total_params, trainable_params = get_parameter_number(model)
+    config['model_architecture']['total_parameters'] = total_params
+    config['model_architecture']['trainable_parameters'] = trainable_params
+    
+    # 保存配置到YAML文件
+    config_path = os.path.join(save_path, 'model_config.yaml')
+    with open(config_path, 'w') as f:
+        yaml.dump(config, f, default_flow_style=False, sort_keys=False)
+
 if __name__ == '__main__':
     
     parser = argparse.ArgumentParser()
     parser.add_argument('--net', type=str, default='PatchTST', help='net type')
     parser.add_argument('--gpu', type = int, default=1, help='use gpu or not')  # 选择是否使用 GPU（1 表示使用 GPU，0 表示使用 CPU）。
     parser.add_argument('--b', type=int, default=128, help='batch size for dataloader')
-    parser.add_argument('--lr', type=float, default=0.001, help='initial learning rate')
+    parser.add_argument('--lr', type=float, default=0.00001, help='initial learning rate')
     parser.add_argument('--epoch', type=int, default=100, help='total training epoches')
-    parser.add_argument('--seed',type=int, default=10, help='seed')
-    parser.add_argument('--gamma', type=float, default=5, help='the gamma of focal loss')
-    parser.add_argument('--beta', type=float, default=0.999, help='the beta of class balanced loss')
-    parser.add_argument('--weight_d', type=float, default=0.0000, help='weight decay for regularization')
-    parser.add_argument('--save_path',type=str, default='setting0', help='saved path of each setting') #
+    parser.add_argument('--seed',type=int, default=42, help='seed')
+    parser.add_argument('--gamma', type=float, default=3.0, help='the gamma of focal loss')
+    parser.add_argument('--beta', type=float, default=0.9999, help='the beta of class balanced loss')
+    parser.add_argument('--weight_d', type=float, default=0.01, help='weight decay for regularization')
+    parser.add_argument('--save_path', type=str, default='experiments/default_run',
+                       help='path for saving all outputs (checkpoints, logs, etc)')
     parser.add_argument('--data_path',type=str, default='C:\\Users\\10025\\Desktop\\0000PatchTST-TFC-main\\0000PatchTST-TFC-main\\CMI-Net\\data\\new_goat_25hz_3axis.pt', help='saved path of input data')
+    parser.add_argument('--patience', type=int, default=20, help='patience for early stopping')
+    parser.add_argument('--num_classes', type=int, default=5, help='number of classes in the dataset')
+    parser.add_argument('--max_grad_norm', type=float, default=1.0, help='maximum gradient norm for gradient clipping')
+    parser.add_argument('--num_workers', type=int, default=8 if platform.system() != "Windows" else 0, help='number of workers for data loading')
+    parser.add_argument('--lr_decay', type=str, default='cosine',
+                       help='learning rate decay type: cosine/step/linear (default: cosine)')
+    parser.add_argument('--warmup_epochs', type=int, default=5, help='number of warmup epochs')
+    parser.add_argument('--min_lr', type=float, default=1e-6, help='minimum learning rate')
+    
     args = parser.parse_args()
 
+    # 修改保存路径逻辑
+    # 创建保存目录
+    if not os.path.exists(args.save_path):
+        os.makedirs(args.save_path, exist_ok=True)
+    
+    # 创建时间戳子目录
+    timestamp = settings.TIME_NOW
+    checkpoint_path = os.path.join(args.save_path, timestamp)
+    if not os.path.exists(checkpoint_path):
+        os.makedirs(checkpoint_path)
+
+    # 创建子目录
+    checkpoints_dir = os.path.join(checkpoint_path, 'checkpoints')
+    logs_dir = os.path.join(checkpoint_path, 'logs')
+    plots_dir = os.path.join(checkpoint_path, 'plots')
+    
+    # 创建所需的子目录
+    for dir_path in [checkpoints_dir, logs_dir, plots_dir]:
+        if not os.path.exists(dir_path):
+            os.makedirs(dir_path)
+
+    # 修改checkpoint_path_pth的路径
+    checkpoint_path_pth = os.path.join(checkpoints_dir, '{net}-{type}.pth')
+    
     # 创建配置对象
     cb_config = CBLossConfig(
-        num_classes=5,
+        num_classes=args.num_classes,
         loss_type="focal",
         beta=args.beta,
         gamma=args.gamma
     )
 
-    device = torch.device("cuda:0" if args.gpu > 0 and torch.cuda.is_available() else "cpu") # 条件运算符，如果 args.gpu > 0 并且 torch.cuda.is_available() 为 True，则使用 GPU，否则使用 CPU
+    device = torch.device("cuda:0" if args.gpu > 0 and torch.cuda.is_available() else "cpu")
 
-    if args.gpu:
-        torch.cuda.manual_seed(args.seed)# 设置 GPU 上的随机数种子，确保在 GPU 上的随机操作（如权重初始化等）也是可重复的
+    if args.gpu and torch.cuda.is_available():
+        torch.cuda.manual_seed(args.seed)
     else:
-        torch.manual_seed(args.seed)#  设置 CPU 上的随机数种子，确保在 CPU 上执行的所有与随机性相关的操作都是可重复的
+        args.gpu = 0
+        torch.manual_seed(args.seed)
     
-    net = get_network(args).to(device)   # get_network 在 utils.py  中 ，把模型搬运到device(GPU)中
-    
-    # 打印模型结构详情
-    print("\n" + "="*50)
-    print("模型结构详情：")
-    print(net)  # 输出完整的模型结构
-
-    # 特别检查输出层
-    print("\n输出层信息:")
-    if hasattr(net, 'classifier'):
-        if isinstance(net.classifier, nn.Sequential):
-            # 获取Sequential中的最后一个Linear层
-            for layer in reversed(net.classifier):
-                if isinstance(layer, nn.Linear):
-                    print("输出层维度:", layer.out_features)
-                    output_dim = layer.out_features
-                    break
-        else:
-            print("输出层维度:", net.classifier.out_features)
-            output_dim = net.classifier.out_features
-    elif hasattr(net, 'fc'):
-        print("输出层维度:", net.fc.out_features)
-        output_dim = net.fc.out_features
-    else:
-        print("警告：无法直接获取输出层维度！")
-        # 尝试通过模型的最后一层获取维度
-        last_layer = None
-        for module in net.modules():
-            if isinstance(module, nn.Linear):
-                last_layer = module
-        if last_layer is not None:
-            print("通过最后一个Linear层获取维度:", last_layer.out_features)
-            output_dim = last_layer.out_features
-        else:
-            raise AttributeError("无法找到模型的输出层！")
-    print("="*50 + "\n")
-
-    print(f"Model is on device: {next(net.parameters()).device}")
-    print('Setting: Epoch: {}, Batch size: {}, Learning rate: {:.6f}, gpu:{}, seed:{}'.format(
-        args.epoch, args.b, args.lr, args.gpu, args.seed))
-
+    # 修改工作进程数设置部分
     sysstr = platform.system()
-    if(sysstr =="Windows"):
-        num_workers = 0
-    else:
-        num_workers = 8                        # 在windows上的进程是0， 在Linux的是8？ 在Windows 在多进程的数据加载时可能会遇到问题？？？？
+    num_workers = args.num_workers
         
-    pathway = args.data_path                     # 默认Linux的问题
+    pathway = args.data_path
     if sysstr=='Linux': 
         pathway = args.data_path
     
+    # 创建数据加载器
     train_loader, weight_train, number_train = get_weighted_mydataloader(
         pathway, 
         data_id=0, 
@@ -266,31 +321,70 @@ if __name__ == '__main__':
     valid_loader = get_mydataloader(pathway, data_id=1, batch_size=args.b, num_workers=num_workers, shuffle=True)
     test_loader = get_mydataloader(pathway, data_id=2, batch_size=args.b, num_workers=num_workers, shuffle=True)
     
-    # 检查数据集信息
-    print("\n" + "="*50)
-    print("数据集信息检查：")
+    # 创建模型
+    net = get_network(args).to(device)
     
-    # 检查类别数 - 使用更健壮的方式获取类别数
+    # 打印模型结构详情
+    print("\n" + "="*50)
+    print("模型结构详情：")
+    print(net)
+
+    # 特别检查输出层
+    print("\n输出层信息:")
+    def get_output_dim(model):
+        """获取模型输出维度的辅助函数"""
+        if hasattr(model, 'fc'):
+            if isinstance(model.fc, nn.Linear):
+                return model.fc.out_features
+            elif isinstance(model.fc, nn.Sequential):
+                # 获取Sequential中的最后一个Linear层
+                for layer in reversed(model.fc):
+                    if isinstance(layer, nn.Linear):
+                        return layer.out_features
+        elif hasattr(model, 'classifier'):
+            if isinstance(model.classifier, nn.Linear):
+                return model.classifier.out_features
+            elif isinstance(model.classifier, nn.Sequential):
+                # 获取Sequential中的最后一个Linear层
+                for layer in reversed(model.classifier):
+                    if isinstance(layer, nn.Linear):
+                        return layer.out_features
+        
+        # 如果上述方法都失败，尝试遍历整个模型找到最后的Linear层
+        last_linear = None
+        for module in model.modules():
+            if isinstance(module, nn.Linear):
+                last_linear = module
+        
+        if last_linear is not None:
+            return last_linear.out_features
+        
+        raise AttributeError("无法找到模型的输出维度！")
+
     try:
+        # 获取数据集的类别数
         if hasattr(train_loader.dataset, 'classes'):
             num_classes = len(train_loader.dataset.classes)
         else:
             # 如果没有classes属性，尝试从数据中推断类别数
-            num_classes = len(torch.unique(torch.tensor([label for _, label in train_loader.dataset])))
+            all_labels = []
+            for _, labels in train_loader:
+                all_labels.extend(labels.numpy())
+            num_classes = len(np.unique(all_labels))
         print(f"数据集的类别数: {num_classes}")
         
-        # 对比模型输出层维度
-        if hasattr(net, 'fc'):
-            output_dim = net.fc.out_features
-        elif hasattr(net, 'classifier'):
-            output_dim = net.classifier.out_features
-        else:
-            raise AttributeError("无法找到模型的输出层！")
+        # 获取模型输出维度
+        try:
+            output_dim = get_output_dim(net)
+            print(f"模型输出层维度: {output_dim}")
             
-        print(f"模型输出层维度: {output_dim}")
-        
-        assert output_dim == num_classes, f"警告：模型输出层维度({output_dim})与数据类别数({num_classes})不匹配！"
-        print("✓ 模型输出维度与数据类别数匹配")
+            if output_dim == num_classes:
+                print("✓ 模型输出维度与数据类别数匹配")
+            else:
+                print(f"警告：模型输出层维度({output_dim})与数据类别数({num_classes})不匹配！")
+        except AttributeError as e:
+            print(f"警告：获取模型输出维度时出错 - {str(e)}")
+            
     except Exception as e:
         print(f"警告：检查类别数时出现问题: {str(e)}")
     
@@ -309,126 +403,76 @@ if __name__ == '__main__':
     else:
         print("no regularization")
     
-    # 使用标签平滑的交叉熵损失
-    loss_function_CE = nn.CrossEntropyLoss(
-        weight=weight_train,
-        label_smoothing=0.1  # 添加标签平滑
-    )
     # 修改优化器配置
     optimizer = optim.AdamW(
         net.parameters(),
-        lr=0.001,  # 降低初始学习率
-        weight_decay=1e-4,  # 增加权重衰减
-        betas=(0.9, 0.999),  # 使用默认动量参数
+        lr=args.lr,
+        weight_decay=args.weight_d,
+        betas=(0.9, 0.999),
         eps=1e-8
     )
 
-    # 使用带预热的学习率调度器
-    num_epochs = args.epoch
-    warmup_epochs = 5
-    
-    def lr_lambda(epoch):
-        if epoch < warmup_epochs:
-            # 线性预热
-            return epoch / warmup_epochs
-        else:
-            # 余弦退火
-            return 0.5 * (1 + np.cos(np.pi * (epoch - warmup_epochs) / (num_epochs - warmup_epochs)))
-    
-    train_scheduler = optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
+    # 修改学习率调度器
+    def get_lr_scheduler(optimizer, args):
+        if args.lr_decay == 'cosine':
+            def lr_lambda(epoch):
+                if epoch < args.warmup_epochs:
+                    return epoch / args.warmup_epochs
+                else:
+                    # 确保学习率不低于最小学习率
+                    progress = (epoch - args.warmup_epochs) / (args.epoch - args.warmup_epochs)
+                    cosine_decay = 0.5 * (1 + np.cos(np.pi * progress))
+                    return max(cosine_decay, args.min_lr / args.lr)
+        elif args.lr_decay == 'step':
+            def lr_lambda(epoch):
+                if epoch < args.warmup_epochs:
+                    return epoch / args.warmup_epochs
+                else:
+                    # 每30个epoch衰减为原来的0.1
+                    return 0.1 ** (epoch // 30)
+        else:  # linear decay
+            def lr_lambda(epoch):
+                if epoch < args.warmup_epochs:
+                    return epoch / args.warmup_epochs
+                else:
+                    progress = (epoch - args.warmup_epochs) / (args.epoch - args.warmup_epochs)
+                    return 1.0 - progress
 
-    # 添加梯度裁剪
-    max_grad_norm = 1.0  # 设置梯度裁剪阈值
+        return optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
 
-    checkpoint_path = os.path.join(settings.CHECKPOINT_PATH, args.net, args.save_path, settings.TIME_NOW)
+    train_scheduler = get_lr_scheduler(optimizer, args)
 
-    #use tensorboard
-    if not os.path.exists(settings.LOG_DIR):               # 如果没 log 路径 创建log路径
-        os.mkdir(settings.LOG_DIR)
+    # 更新梯度裁剪阈值
+    max_grad_norm = args.max_grad_norm  # 使用参数化的梯度裁剪阈值
 
-    #create checkpoint folder to save model
-    if not os.path.exists(checkpoint_path):                  # 参数路径
-        os.makedirs(checkpoint_path)
-    checkpoint_path_pth = os.path.join(checkpoint_path, '{net}-{type}.pth')
-
-    best_acc = 0.0
+    best_acc = 0
     Train_Loss = []
     Train_Accuracy = []
     Valid_Loss = []
     Valid_Accuracy = []
     f1_s = []
-    best_epoch = 1
+    best_epoch = 0
     best_weights_path = checkpoint_path_pth.format(net=args.net, type='best')
-   
-    # 在主训练循环前添加过拟合测试
-    print("\n" + "="*50)
-    print("开始过拟合测试")
-    print("目的：验证模型是否有足够的容量学习数据")
-    print("预期：在小数据集上损失应该快速下降，准确率接近100%")
-    print("="*50)
-
-    # 创建非常小的数据集用于过拟合测试
-    small_dataset_size = 100  # 只使用100个样本
-    indices = torch.randperm(len(train_loader.dataset))[:small_dataset_size]
-    small_dataset = torch.utils.data.Subset(train_loader.dataset, indices)
     
-    small_train_loader = DataLoader(
-        small_dataset,
-        batch_size=16,  # 使用更小的batch size
-        shuffle=True,
-        num_workers=num_workers,
-        pin_memory=True
-    )
-
-    # 临时创建新的优化器用于过拟合测试
-    overfit_optimizer = optim.Adam(
-        net.parameters(),
-        lr=0.001,  # 使用更小的学习率
-        weight_decay=0
-    )
-
-    print("\n--- 过拟合测试：在小批量数据上训练 ---")
-    print(f"使用数据集大小: {small_dataset_size}, Batch size: 16")
+    # 早停机制相关变量
+    early_stopping_counter = 0
+    best_valid_loss = float('inf')
     
-    for epoch in range(20):  # 增加训练轮数
-        running_loss = 0.0
-        correct = 0
-        total = 0
-        
-        for batch_idx, (inputs, targets) in enumerate(small_train_loader):
-            inputs, targets = inputs.to(device), targets.to(device)
-            overfit_optimizer.zero_grad()
-            
-            with autocast():
-                outputs = net(inputs)
-                loss = F.cross_entropy(outputs, targets)  # 使用简单的交叉熵损失
-            
-            loss.backward()
-            overfit_optimizer.step()
-            
-            running_loss += loss.item()
-            _, predicted = outputs.max(1)
-            total += targets.size(0)
-            correct += predicted.eq(targets).sum().item()
-        
-        epoch_loss = running_loss / len(small_train_loader)
-        epoch_acc = 100. * correct / total
-        
-        print(f"过拟合测试 Epoch {epoch}: 准确率 = {epoch_acc:.2f}%, 损失 = {epoch_loss:.4f}")
-        
-        # 如果准确率达到很高，提前停止
-        if epoch_acc > 95:
-            print(f"\n✓ 过拟合测试成功！模型在epoch {epoch}达到{epoch_acc:.2f}%的准确率")
-            break
-    
-    print("\n" + "="*50)
-    print("过拟合测试完成")
-    print("即将开始正式训练...")
-    print("="*50 + "\n")
+    # 在训练开始前计算每个类别的样本数
+    def get_class_counts(train_loader):
+        class_counts = torch.zeros(args.num_classes)  # 使用参数化的类别数
+        for _, labels in train_loader:
+            for label in labels:
+                class_counts[label] += 1
+        return class_counts
 
-    # 重新初始化模型和优化器
-    net = get_network(args).to(device)
-    
+    # 在训练主循环前计算
+    samples_per_cls = get_class_counts(train_loader)
+
+    print("Class distribution:")
+    for i, count in enumerate(samples_per_cls):
+        print(f"Class {i}: {count} samples")
+
     # 开始正式训练循环...
     for epoch in range(1, args.epoch + 1):
         # 训练并获取指标
@@ -444,12 +488,19 @@ if __name__ == '__main__':
             # 使用混合精度训练
             with autocast():
                 outputs = net(images)
-                loss = CB_loss(labels, outputs, number_train, 5, "focal", args.beta, args.gamma)
+                loss = CB_loss(
+                    labels=labels,
+                    logits=outputs,
+                    samples_per_cls=samples_per_cls,
+                    no_of_classes=args.num_classes,
+                    loss_type="focal",
+                    beta=args.beta,
+                    gamma=args.gamma
+                )
             
             loss.backward()
             
-            # 应用梯度裁剪
-            torch.nn.utils.clip_grad_norm_(net.parameters(), max_grad_norm)
+
             
             optimizer.step()
             
@@ -459,9 +510,6 @@ if __name__ == '__main__':
             correct += predicted.eq(labels).sum().item()
             running_loss += loss.item()
             
-            if batch_index % 100 == 0:
-                print(f"Epoch {epoch}, Batch {batch_index}, Loss: {loss.item():.4f}, LR: {optimizer.param_groups[0]['lr']:.6f}")
-        
         # 计算训练指标
         train_acc = correct / total  # 不乘以100，保持小数形式
         train_loss = running_loss / len(train_loader)
@@ -473,9 +521,9 @@ if __name__ == '__main__':
         valid_acc, valid_loss, fs_valid = eval_training(
             valid_loader, 
             net, 
-            loss_function_CE, 
-            samples_per_cls=number_train,  # 添加这个参数
+            samples_per_cls=samples_per_cls,
             cb_config=cb_config,
+            device=device,
             epoch=epoch
         )
         
@@ -497,6 +545,17 @@ if __name__ == '__main__':
             best_epoch = epoch
             torch.save(net.state_dict(), best_weights_path)
             
+        # 早停机制
+        if valid_loss < best_valid_loss:
+            best_valid_loss = valid_loss
+            early_stopping_counter = 0
+        else:
+            early_stopping_counter += 1
+            print(f'EarlyStopping counter: {early_stopping_counter} out of {args.patience}')
+            if early_stopping_counter >= args.patience:
+                print(f'Early stopping triggered after {epoch} epochs')
+                break
+            
     print('Best epoch: {} with accuracy: {:.4f}'.format(best_epoch, best_acc))
 
 
@@ -505,59 +564,61 @@ if __name__ == '__main__':
     fig1=plt.figure(figsize=(12,9))
     plt.title('Accuracy',font_1)
     index_train = list(range(1,len(Train_Accuracy)+1))
-    plt.plot(index_train,Train_Accuracy,color='skyblue',label='train_accuracy')
-    plt.plot(index_train,Valid_Accuracy,color='red',label='valid_accuracy')
+    plt.plot(index_train,Train_Accuracy,color='#FF9999',label='train_accuracy', linewidth=2)
+    plt.plot(index_train,Valid_Accuracy,color='#66B2FF',label='valid_accuracy', linewidth=2)
     plt.legend(fontsize=16)
     plt.xticks(fontsize=12)
     plt.yticks(fontsize=12)
-    plt.grid()
+    plt.grid(True, linestyle='--', alpha=0.7)
     plt.xlim(0,100)
     plt.xlabel('n_iter',font_1)
     plt.ylabel('Accuracy',font_1)
     
-    acc_figuresavedpath = os.path.join(checkpoint_path,'Accuracy_curve.png')
-    plt.savefig(acc_figuresavedpath)
-    # plt.show()
+    acc_figuresavedpath = os.path.join(plots_dir, 'Accuracy_curve.png')
+    plt.savefig(acc_figuresavedpath, bbox_inches='tight', dpi=300)
+    plt.close()
     
     #plot loss varying over time
     fig2=plt.figure(figsize=(12,9))
     plt.title('Loss',font_1)
     index_valid = list(range(1,len(Valid_Loss)+1))
-    plt.plot(index_valid,Train_Loss,color='skyblue', label='train_loss')
-    plt.plot(index_valid,Valid_Loss,color='red', label='valid_loss')
+    plt.plot(index_valid,Train_Loss,color='#99FF99', label='train_loss', linewidth=2)
+    plt.plot(index_valid,Valid_Loss,color='#FFCC99', label='valid_loss', linewidth=2)
     plt.legend(fontsize=16)
     plt.xticks(fontsize=12)
     plt.yticks(fontsize=12)
-    plt.grid()
+    plt.grid(True, linestyle='--', alpha=0.7)
     plt.xlim(0,100)
     plt.xlabel('n_iter',font_1)
     plt.ylabel('Loss',font_1)
 
-    loss_figuresavedpath = os.path.join(checkpoint_path,'Loss_curve.png')
-    plt.savefig(loss_figuresavedpath)
-    # plt.show()
+    loss_figuresavedpath = os.path.join(plots_dir, 'Loss_curve.png')
+    plt.savefig(loss_figuresavedpath, bbox_inches='tight', dpi=300)
+    plt.close()
     
     #plot f1 score varying over time
     fig3=plt.figure(figsize=(12,9))
     plt.title('F1-score',font_1)
     index_fs = list(range(1,len(f1_s)+1))
-    plt.plot(index_fs,f1_s,color='skyblue')
+    plt.plot(index_fs,f1_s,color='#FF99CC', linewidth=2)
     plt.xticks(fontsize=12)
     plt.yticks(fontsize=12)
-    plt.grid()
+    plt.grid(True, linestyle='--', alpha=0.7)
     plt.xlim(0,100)
     plt.xlabel('n_iter',font_1)
-    plt.ylabel('Loss',font_1)
+    plt.ylabel('F1-score',font_1)
 
-    fs_figuresavedpath = os.path.join(checkpoint_path,'F1-score.png')
-    plt.savefig(fs_figuresavedpath)
-    # plt.show()
+    fs_figuresavedpath = os.path.join(plots_dir, 'F1-score.png')
+    plt.savefig(fs_figuresavedpath, bbox_inches='tight', dpi=300)
+    plt.close()
     
-    out_txtsavedpath = os.path.join(checkpoint_path,'output.txt')
+    # 保存训练结果到txt文件
+    out_txtsavedpath = os.path.join(logs_dir, 'output.txt')
     f = open(out_txtsavedpath, 'w+')
     
+    # 保存实验配置信息
     print('Setting: Seed:{}, Epoch: {}, Batch size: {}, Learning rate: {:.6f}, Weight decay: {}, gpu:{}, Data path: {}, Saved path: {}'.format(
-        args.seed, args.epoch, args.b, args.lr, args.weight_d, args.gpu, args.data_path, args.save_path),
+        args.seed, args.epoch, args.b, args.lr, args.weight_d, args.gpu, args.data_path, checkpoint_path),
         file=f)
     
     print('index: {}; maximum value of validation accuracy: {}.'.format(Valid_Accuracy.index(max(Valid_Accuracy))+1, max(Valid_Accuracy)), file=f)
@@ -566,10 +627,17 @@ if __name__ == '__main__':
     print('Validation accuracy: {}'.format(Valid_Accuracy), file=f)
     print('Validation F1-score: {}'.format(f1_s), file=f)
     
+    # 保存CSV结果
+    csv_path = os.path.join(logs_dir, 'results.csv')
+    if not os.path.exists(csv_path):
+        with open(csv_path, 'w+') as csvfile:
+            writer_csv = csv.writer(csvfile)
+            writer_csv.writerow(['index','accuracy','f1-score','precision','recall','kappa','time_consumed'])
+
     ######load the best trained model and test testing data  ，测试函数，推理
     best_net = get_network(args)
-    best_net.load_state_dict(torch.load(best_weights_path))
-    best_net.load_state_dict(torch.load(best_weights_path))
+    best_net.load_state_dict(torch.load(best_weights_path, map_location=device))
+    best_net = best_net.to(device)
     
     total_num_paras, trainable_num_paras = get_parameter_number(best_net)
     print('The total number of network parameters = {}'.format(total_num_paras), file=f)
@@ -581,96 +649,229 @@ if __name__ == '__main__':
     test_target =[]
     test_predict = []
     
+    # 定义行为标签
+    behavior_labels = ['standing', 'running', 'grazing', 'trotting', 'walking']
+    
     with torch.no_grad():
-        
         start = time.time()
         
         for n_iter, (image, labels) in enumerate(test_loader):
-            print("iteration: {}\ttotal {} iterations".format(n_iter + 1, len(test_loader)))
-
-            if args.gpu:
-                image = image.cuda()
-                labels = labels.cuda()
+            image = image.to(device)
+            labels = labels.to(device)
 
             output = best_net(image)
             output = torch.softmax(output, dim= 1)
             preds = torch.argmax(output, dim =1)
-            # _, preds = output.topk(5, 1, largest=True, sorted=True)
-            # _, preds = output.max(1)
             correct_test += preds.eq(labels).sum()
             
-            if args.gpu:
-                labels = labels.cpu()
-                preds = preds.cpu()
+            labels = labels.cpu()
+            preds = preds.cpu()
         
             test_target.extend(labels.numpy().tolist())
             test_predict.extend(preds.numpy().tolist())
         
             number +=1
         
-        print('Label values: {}'.format(test_target), file=f)
-        print('Predicted values: {}'.format(test_predict), file=f)
-
         finish = time.time()
         accuracy_test = correct_test.float() / len(test_loader.dataset)
-        print('Testing network......', file=f)
-        print('Test set: Accuracy: {:.5f}, Time consumed: {:.5f}s'.format(
+        
+        # 计算各项指标
+        fs_test = f1_score(test_target, test_predict, average='macro')
+        kappa_value = cohen_kappa_score(test_target, test_predict)
+        precision_test = precision_score(test_target, test_predict, average='macro', zero_division=0)
+        recall_test = recall_score(test_target, test_predict, average='macro', zero_division=0)
+        
+        # 打印测试集评估结果
+        print('\nEvaluating Network.....')
+        print('Test set: Average loss: {:.4f}, Accuracy: {:.4f}, Time consumed: {:.2f}s'.format(
+            0.0,  # 由于我们在测试阶段没有计算损失，这里填0
             accuracy_test,
             finish - start
-            ), file=f)
+        ))
         
-        #Obtain f1_score of the prediction
-        fs_test = f1_score(test_target, test_predict, average='macro')
-        print('f1 score = {:.5f}'.format(fs_test), file=f)
+        # 打印分类报告
+        print('Classification Report:')
+        print(classification_report(test_target, test_predict, zero_division=0))
         
-        kappa_value = cohen_kappa_score(test_target, test_predict)
-        print("kappa value = {:.5f}".format(kappa_value), file=f)
+        # 打印混淆矩阵
+        print('\nConfusion Matrix - Test Results:')
+        matrix = confusion_matrix(test_target, test_predict)
         
-        precision_test = precision_score(test_target, test_predict, average='macro', zero_division=0)
-        print('precision = {:.5f}'.format(precision_test), file=f)
+        # 打印列索引
+        n_classes = len(matrix)
+        print('\t' + '\t'.join([str(i) for i in range(n_classes)]))
+        print('-' * (8 * n_classes))
         
-        recall_test = recall_score(test_target, test_predict, average='macro', zero_division=0)
-        print('recall = {:.5f}'.format(recall_test), file=f)
+        # 打印每一行
+        for i in range(n_classes):
+            row = [str(x) for x in matrix[i]]
+            print(f'{i}\t' + '\t'.join(row))
+        print()
         
-        #Output the classification report
-        print('------------', file=f)
-        print('Classification Report', file=f)
-        print(classification_report(test_target, test_predict, zero_division=0), file=f)
+        # 打印总体训练结果
+        print('\n' + '='*50)
+        print('Training Summary')
+        print('='*50)
+        print(f'Epoch: {best_epoch}, Average loss: {0.0:.4f}, Accuracy: {accuracy_test:.4f}, Time consumed: {finish - start:.2f}s')
+        print(f'F1 Score: {fs_test:.4f}')
+        print(f'Precision: {precision_test:.4f}')
+        print(f'Recall: {recall_test:.4f}')
+        print(f'Kappa Score: {kappa_value:.4f}')
+        print(f'Total samples: {len(test_loader.dataset)}')
+        print(f'Total correct: {int(correct_test)}')
+        print(f'Average time per sample: {(finish - start)/len(test_loader.dataset):.4f}s')
+        print('='*50 + '\n')
         
-        if not os.path.exists('./results.csv'):
-            with open("./results.csv", 'w+') as csvfile:
-                writer_csv = csv.writer(csvfile)
-                writer_csv.writerow(['index','accuracy','f1-score','precision','recall','kappa','time_consumed'])
-        
-        with open("./results.csv", 'a+') as csvfile:
-            writer_csv = csv.writer(csvfile)
-            writer_csv.writerow([args.seed, accuracy_test, fs_test, precision_test, recall_test, kappa_value, finish-start])
-        
-        Class_labels = ['eating', 'galloping', 'standing', 'trotting', 'walking-natural', 'walking-rider']
-        #Show the confusion matrix so that it can help us observe the results more intuitively
+        # 绘制混淆矩阵
         def show_confusion_matrix(validations, predictions):
-            matrix = confusion_matrix(validations, predictions) #No one-hot
-            #matrix = confusion_matrix(validations.argmax(axis=1), predictions.argmax(axis=1)) #One-hot
-            plt.figure(figsize=(6, 4))
+            matrix = confusion_matrix(validations, predictions)
+            percentages = matrix.astype('float') / matrix.sum(axis=1)[:, np.newaxis]
+            
+            # 第一个混淆矩阵：显示数量
+            plt.figure(figsize=(10, 8))
             sns.heatmap(matrix,
-                  cmap="coolwarm",
+                  cmap="Blues",
                   linecolor='white',
-                  linewidths=1,
-                  xticklabels=Class_labels,
-                  yticklabels=Class_labels,
+                  linewidths=2,
+                  xticklabels=behavior_labels,
+                  yticklabels=behavior_labels,
                   annot=True,
-                  fmt="d")
-            plt.title("Confusion Matrix")
-            plt.ylabel("True Label")
-            plt.xlabel("Predicted Label")
-            cm_figuresavedpath = os.path.join(checkpoint_path,'Confusion_matrix.png')
-            plt.savefig(cm_figuresavedpath)
+                  fmt="d",
+                  cbar=True,
+                  square=True,
+                  annot_kws={'size': 12, 'weight': 'bold'})
+            
+            plt.title("Confusion Matrix (Counts)", fontsize=16, fontweight='bold', pad=20)
+            plt.ylabel("True Label", fontsize=14, fontweight='bold')
+            plt.xlabel("Predicted Label", fontsize=14, fontweight='bold')
+            
+            # 设置刻度标签
+            plt.xticks(rotation=45, ha='right', fontsize=12)
+            plt.yticks(rotation=0, fontsize=12)
+            
+            plt.tight_layout()
+            cm_counts_path = os.path.join(plots_dir, 'Confusion_matrix_counts.png')
+            plt.savefig(cm_counts_path, bbox_inches='tight', dpi=300)
+            plt.close()
+            
+            # 第二个混淆矩阵：显示百分比
+            plt.figure(figsize=(10, 8))
+            sns.heatmap(percentages,
+                  cmap="Blues",
+                  linecolor='white',
+                  linewidths=2,
+                  xticklabels=behavior_labels,
+                  yticklabels=behavior_labels,
+                  annot=True,
+                  fmt=".1%",
+                  cbar=True,
+                  square=True,
+                  annot_kws={'size': 12, 'weight': 'bold'})
+            
+            plt.title("Confusion Matrix (Percentages)", fontsize=16, fontweight='bold', pad=20)
+            plt.ylabel("True Label", fontsize=14, fontweight='bold')
+            plt.xlabel("Predicted Label", fontsize=14, fontweight='bold')
+            
+            # 设置刻度标签
+            plt.xticks(rotation=45, ha='right', fontsize=12)
+            plt.yticks(rotation=0, fontsize=12)
+            
+            plt.tight_layout()
+            cm_percentages_path = os.path.join(plots_dir, 'Confusion_matrix_percentages.png')
+            plt.savefig(cm_percentages_path, bbox_inches='tight', dpi=300)
+            plt.close()
 
+        # 绘制PR曲线和ROC曲线
+        def plot_pr_roc_curves(y_true, y_score):
+            # 为每个类别定义不同的颜色
+            class_colors = ['#FF9999', '#66B2FF', '#99FF99', '#FFCC99', '#FF99CC']
+            
+            # 绘制PR曲线
+            plt.figure(figsize=(10, 8))
+            for i in range(len(behavior_labels)):
+                y_true_binary = (np.array(y_true) == i).astype(int)
+                y_score_binary = y_score[:, i]
+                
+                precision, recall, _ = precision_recall_curve(y_true_binary, y_score_binary)
+                avg_precision = average_precision_score(y_true_binary, y_score_binary)
+                
+                plt.plot(recall, precision, color=class_colors[i], 
+                        label=f'{behavior_labels[i]} (AP={avg_precision:.2f})', 
+                        linewidth=2)
+            
+            plt.title('Precision-Recall Curves', fontsize=16, fontweight='bold', pad=20)
+            plt.xlabel('Recall', fontsize=14, fontweight='bold')
+            plt.ylabel('Precision', fontsize=14, fontweight='bold')
+            plt.grid(True, linestyle='--', alpha=0.7)
+            plt.legend(loc='lower left', fontsize=10)
+            plt.xlim([0.0, 1.0])
+            plt.ylim([0.0, 1.05])
+            
+            plt.tight_layout()
+            pr_curve_path = os.path.join(plots_dir, 'PR_curve.png')
+            plt.savefig(pr_curve_path, bbox_inches='tight', dpi=300)
+            plt.close()
+            
+            # 绘制ROC曲线
+            plt.figure(figsize=(10, 8))
+            for i in range(len(behavior_labels)):
+                y_true_binary = (np.array(y_true) == i).astype(int)
+                y_score_binary = y_score[:, i]
+                
+                fpr, tpr, _ = roc_curve(y_true_binary, y_score_binary)
+                roc_auc = auc(fpr, tpr)
+                
+                plt.plot(fpr, tpr, color=class_colors[i], 
+                        label=f'{behavior_labels[i]} (AUC={roc_auc:.2f})', 
+                        linewidth=2)
+            
+            plt.plot([0, 1], [0, 1], 'k--', label='Random')
+            plt.title('ROC Curves', fontsize=16, fontweight='bold', pad=20)
+            plt.xlabel('False Positive Rate', fontsize=14, fontweight='bold')
+            plt.ylabel('True Positive Rate', fontsize=14, fontweight='bold')
+            plt.grid(True, linestyle='--', alpha=0.7)
+            plt.legend(loc='lower right', fontsize=10)
+            plt.xlim([0.0, 1.0])
+            plt.ylim([0.0, 1.05])
+            
+            plt.tight_layout()
+            roc_curve_path = os.path.join(plots_dir, 'ROC_curve.png')
+            plt.savefig(roc_curve_path, bbox_inches='tight', dpi=300)
+            plt.close()
+
+        # 绘制混淆矩阵
         show_confusion_matrix(test_target, test_predict)
-    
-    if args.gpu:
+        
+        # 计算并绘制PR曲线和ROC曲线
+        test_probabilities = []
+        with torch.no_grad():
+            for images, _ in test_loader:
+                images = images.to(device)
+                outputs = best_net(images)
+                probs = torch.softmax(outputs, dim=1)
+                test_probabilities.append(probs.cpu().numpy())
+        
+        test_probabilities = np.vstack(test_probabilities)
+        plot_pr_roc_curves(test_target, test_probabilities)
+        
+        # 创建训练配置字典
+        train_config = {
+            'best_accuracy': best_acc,
+            'best_epoch': best_epoch,
+            'final_metrics': {
+                'accuracy': float(accuracy_test),
+                'f1_score': float(fs_test),
+                'precision': float(precision_test),
+                'recall': float(recall_test),
+                'kappa': float(kappa_value)
+            }
+        }
+        
+        # 保存模型配置
+        save_model_config(best_net, args, train_config, checkpoint_path)
+
+    if args.gpu and torch.cuda.is_available():
         print('GPU INFO.....', file=f)
         print(torch.cuda.memory_summary(), end='', file=f)
 
-    # 可选：添加dropout
-    net.apply(lambda m: setattr(m, 'dropout', nn.Dropout(p=0.2)) if hasattr(m, 'dropout') else None)
+    
