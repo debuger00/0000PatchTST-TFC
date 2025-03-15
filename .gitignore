@@ -10,3 +10,4 @@ datasets
 *.zip
 PatchTST.py
 *.pptx
+*.xlsx
