@@ -108,7 +108,7 @@ def train(train_loader, network, optimizer, epoch, loss_function, samples_per_cl
         loss_ce = loss_function(outputs, labels)
         # 组合损失(这里CB loss的权重为0，实际上只使用了CE loss)
         # loss = 1.0 * loss_ce + 0.0 * loss_cb
-        loss = 0.0*loss_ce + 1.0*loss_cb # class-balanced focal loss (CMI-Net+CB focal loss)
+        loss = 0.25*loss_ce + 0.75*loss_cb # class-balanced focal loss (CMI-Net+CB focal loss)
         
         # 如果启用权重衰减，添加正则化损失
         if args.weight_d > 0:
@@ -233,8 +233,8 @@ if __name__ == '__main__':
     parser.add_argument('--net', type=str, default='PatchTST_wyh', help='net type')
     parser.add_argument('--gpu', type = int, default=1, help='use gpu or not')  # 选择是否使用 GPU（1 表示使用 GPU，0 表示使用 CPU）。
     parser.add_argument('--b', type=int, default=256, help='batch size for dataloader')
-    parser.add_argument('--lr', type=float, default=0.0001, help='initial learning rate')
-    parser.add_argument('--epoch',type=int, default=50, help='total training epoches')
+    parser.add_argument('--lr', type=float, default=0.001, help='initial learning rate')
+    parser.add_argument('--epoch',type=int, default=100, help='total training epoches')
     parser.add_argument('--seed',type=int, default=10, help='seed')
     parser.add_argument('--gamma',type=float, default=3.0, help='the gamma of focal loss')
     parser.add_argument('--beta',type=float, default=0.9999, help='the beta of class balanced loss')
@@ -378,9 +378,6 @@ if __name__ == '__main__':
     plt.xlabel('n_iter',font_1)
     plt.ylabel('Loss',font_1)
 
-    loss_figuresavedpath = os.path.join(checkpoint_path,'Loss_curve.png')
-    plt.savefig(loss_figuresavedpath)
-    # plt.show()
     
     #plot f1 score varying over time
     fig3=plt.figure(figsize=(12,9))
