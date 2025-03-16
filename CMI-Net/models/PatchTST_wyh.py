@@ -54,7 +54,7 @@ class Configs:
         
         
         # 分类器特定参数
-        self.classifier_dropout = 0.2  # 分类器dropout率
+        self.classifier_dropout = 0.5  # 分类器dropout率
         self.use_weighted_loss = False # 是否使用加权损失（处理类别不平衡）
 
         # 1D卷积参数
