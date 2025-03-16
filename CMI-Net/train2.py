@@ -250,7 +250,8 @@ if __name__ == '__main__':
     parser.add_argument('--weight_d', type=float, default=0.01, help='weight decay for regularization')
     parser.add_argument('--save_path', type=str, default='experiments/default_run',
                        help='path for saving all outputs (checkpoints, logs, etc)')
-    parser.add_argument('--data_path',type=str, default='C:\\Users\\10025\\Desktop\\0000PatchTST-TFC-main\\0000PatchTST-TFC-main\\CMI-Net\\data\\new_goat_25hz_3axis.pt', help='saved path of input data')
+    # parser.add_argument('--data_path',type=str, default='C:\\Users\\10025\\Desktop\\0000PatchTST-TFC-main\\0000PatchTST-TFC-main\\CMI-Net\\data\\new_goat_25hz_3axis.pt', help='saved path of input data')
+    parser.add_argument('--data_path',type=str, default='/data1/wangyonghua/0000PatchTST-TFC/CMI-Net/data/new_goat_25hz_3axis.pt', help='saved path of input data')
     parser.add_argument('--patience', type=int, default=20, help='patience for early stopping')
     parser.add_argument('--num_classes', type=int, default=5, help='number of classes in the dataset')
     parser.add_argument('--max_grad_norm', type=float, default=1.0, help='maximum gradient norm for gradient clipping')

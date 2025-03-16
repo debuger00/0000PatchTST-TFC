@@ -22,7 +22,7 @@ class Configs:
         self.pred_len = 24       # 预测序列长度
         
         # 模型结构参数
-        self.e_layers = 2        # encoder层数
+        self.e_layers = 1        # encoder层数
         self.n_heads = 8         # 注意力头数
         self.d_model = 128       # 模型维度
         self.d_ff = 256         # 前馈网络维度
