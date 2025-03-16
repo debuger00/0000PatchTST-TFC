@@ -22,7 +22,7 @@ class Configs:
         self.pred_len = 24       # 预测序列长度
         
         # 模型结构参数
-        self.e_layers = 2        # encoder层数
+        self.e_layers = 1        # encoder层数
         self.n_heads = 8         # 注意力头数
         self.d_model = 128       # 模型维度
         self.d_ff = 256         # 前馈网络维度
@@ -54,7 +54,7 @@ class Configs:
         
         
         # 分类器特定参数
-        self.classifier_dropout = 0.2  # 分类器dropout率
+        self.classifier_dropout = 0.5  # 分类器dropout率
         self.use_weighted_loss = False # 是否使用加权损失（处理类别不平衡）
 
         # 1D卷积参数
