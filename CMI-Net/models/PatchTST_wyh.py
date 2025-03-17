@@ -22,9 +22,9 @@ class Configs:
         self.pred_len = 24       # 预测序列长度
         
         # 模型结构参数
-        self.e_layers = 1        # encoder层数
+        self.e_layers = 2        # encoder层数
         self.n_heads = 8         # 注意力头数
-        self.d_model =  32     # 模型维度
+        self.d_model = 128       # 模型维度
         self.d_ff = 256         # 前馈网络维度
         self.dropout = 0.2       # dropout率
         self.fc_dropout = 0.2    # 全连接层dropout率
@@ -157,12 +157,19 @@ class PatchTSTNet(nn.Module):
         # 修改分类头，增加特征提取能力
         self.classifier = nn.Sequential(
 
-            nn.Linear(feature_dim, feature_dim//2),
-            nn.ReLU(),
-            nn.Dropout(configs.classifier_dropout),
+            # nn.Linear(feature_dim, feature_dim//2),
+            # nn.ReLU(),
+            # nn.Dropout(configs.classifier_dropout),
             
-            # 最终分类层
-            nn.Linear(feature_dim//2, configs.num_classes)
+            # # 最终分类层
+            # nn.Linear(feature_dim//2, configs.num_classes)
+
+            nn.Linear(feature_dim, 512),
+            nn.GELU(),
+            nn.Dropout(configs.classifier_dropout),
+            nn.Linear(512, 256),
+            nn.GELU(),
+            nn.Linear(256, configs.num_classes)
         )
         
     
