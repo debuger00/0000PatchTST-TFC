@@ -240,8 +240,8 @@ if __name__ == '__main__':
     parser.add_argument('--beta',type=float, default=0.9999, help='the beta of class balanced loss')
     parser.add_argument('--weight_d',type=float, default=0.1, help='weight decay for regularization')  # 权重衰减 系数 
     parser.add_argument('--save_path',type=str, default='setting0', help='saved path of each setting') #
-    # parser.add_argument('--data_path',type=str, default='E:\\program\\aaa_DL_project\\0000PatchTST-TFC\\CMI-Net\\data\\new_goat_25hz_3axis.pt', help='saved path of input data')
-    parser.add_argument('--data_path',type=str, default='/data1/wangyonghua/0000PatchTST-TFC/CMI-Net/data/new_goat_25hz_3axis.pt', help='saved path of input data')
+    parser.add_argument('--data_path',type=str, default='E:\\program\\aaa_DL_project\\0000PatchTST-TFC\\CMI-Net\\data\\new_goat_25hz_3axis.pt', help='saved path of input data')
+    # parser.add_argument('--data_path',type=str, default='/data1/wangyonghua/0000PatchTST-TFC/CMI-Net/data/new_goat_25hz_3axis.pt', help='saved path of input data')
     args = parser.parse_args()
 
     device = torch.device("cuda:0" if args.gpu > 0 and torch.cuda.is_available() else "cpu") # 条件运算符，如果 args.gpu > 0 并且 torch.cuda.is_available() 为 True，则使用 GPU，否则使用 CPU
