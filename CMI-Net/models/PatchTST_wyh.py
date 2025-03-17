@@ -171,6 +171,23 @@ class PatchTSTNet(nn.Module):
             nn.GELU(),
             nn.Linear(256, configs.num_classes)
         )
+
+    def extract_features(self, x):
+        x = x.squeeze(1)
+        if self.decomposition:
+            res_init, trend_init = self.decomp_module(x)
+            res_init, trend_init = res_init.permute(0,2,1), trend_init.permute(0,2,1)  
+            res = self.model_res(res_init)
+            trend = self.model_trend(trend_init)
+            x = res + trend
+            x = x.permute(0,2,1)
+        else:
+            x = x.permute(0,2,1)
+            x = self.model(x)
+            x = x.permute(0,2,1)
+        
+        x = x.mean(dim=-1)
+        return x  # 返回特征
         
     
     def forward(self, x, return_probs=True):           # x: [Batch, Input length, Channel]

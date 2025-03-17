@@ -32,6 +32,7 @@ from sklearn.metrics import f1_score, classification_report, confusion_matrix, c
 
 import yaml
 from models.PatchTST_wyh import Configs
+from sklearn.manifold import TSNE
 
 def save_hyperparameters(args, model_configs, save_path):
     """保存训练和模型超参数到YAML文件"""
@@ -247,10 +248,10 @@ if __name__ == '__main__':
     parser.add_argument('--gpu', type = int, default=1, help='use gpu or not')  # 选择是否使用 GPU（1 表示使用 GPU，0 表示使用 CPU）。
     parser.add_argument('--b', type=int, default=1024, help='batch size for dataloader')
     parser.add_argument('--lr', type=float, default=0.0001, help='initial learning rate')
-    parser.add_argument('--epoch',type=int, default=200, help='total training epoches')
+    parser.add_argument('--epoch',type=int, default=100, help='total training epoches')
     parser.add_argument('--seed',type=int, default=10, help='seed')
-    parser.add_argument('--gamma',type=float, default=3.0, help='the gamma of focal loss')
-    parser.add_argument('--beta',type=float, default=0.9999, help='the beta of class balanced loss')
+    parser.add_argument('--gamma',type=float, default=1.0, help='the gamma of focal loss')
+    parser.add_argument('--beta',type=float, default=0.999, help='the beta of class balanced loss')
     parser.add_argument('--weight_d',type=float, default=0.001, help='weight decay for regularization')  # 权重衰减 系数 
     parser.add_argument('--save_path',type=str, default='setting0', help='saved path of each setting') #
     parser.add_argument('--data_path',type=str, default='E:\\program\\aaa_DL_project\\0000PatchTST-TFC\\CMI-Net\\data\\new_goat_25hz_3axis.pt', help='saved path of input data')
@@ -410,6 +411,9 @@ if __name__ == '__main__':
     plt.xlim(0,args.epoch)
     plt.xlabel('n_iter',font_1)
     plt.ylabel('Loss',font_1)
+    fs_figuresavedpath = os.path.join(checkpoint_path, 'F1-score.png')
+    plt.savefig(fs_figuresavedpath)
+    # plt.show()
 
        #plot loss varying over time
     fig4=plt.figure(figsize=(12,9))
@@ -428,9 +432,6 @@ if __name__ == '__main__':
     plt.savefig(loss_figuresavedpath)
     # plt.show()
 
-    fs_figuresavedpath = os.path.join(checkpoint_path,'F1-score.png')
-    plt.savefig(fs_figuresavedpath)
-    # plt.show()
     
     out_txtsavedpath = os.path.join(checkpoint_path,'output.txt')
     f = open(out_txtsavedpath, 'w+')
@@ -557,3 +558,35 @@ if __name__ == '__main__':
     model_configs = Configs()
     hyperparameters_save_path = os.path.join(checkpoint_path, 'hyperparameters.yaml')
     save_hyperparameters(args, model_configs, hyperparameters_save_path)
+
+    def plot_tsne(model, data_loader, device):
+    model.eval()
+    features = []
+    labels = []
+
+    with torch.no_grad():
+        for images, lbls in data_loader:
+            images = images.to(device)
+            lbls = lbls.to(device)
+            feats = model.extract_features(images)
+            features.append(feats.cpu().numpy())
+            labels.append(lbls.cpu().numpy())
+
+    features = np.concatenate(features, axis=0)
+    labels = np.concatenate(labels, axis=0)
+
+    tsne = TSNE(n_components=2, random_state=0)
+    tsne_results = tsne.fit_transform(features)
+
+    plt.figure(figsize=(10, 8))
+    scatter = plt.scatter(tsne_results[:, 0], tsne_results[:, 1], c=labels, cmap='viridis', alpha=0.7)
+    plt.colorbar(scatter)
+    plt.title('t-SNE of PatchTST Features')
+    plt.xlabel('t-SNE 1')
+    plt.ylabel('t-SNE 2')
+    plt.show()
+    cm_figuresavedpath = os.path.join(checkpoint_path,'t-SNE.png')
+    plt.savefig(cm_figuresavedpath)
+    
+    # Assuming valid_loader is your validation data loader
+    plot_tsne(net, valid_loader, device)
