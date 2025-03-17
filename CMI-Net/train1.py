@@ -30,40 +30,53 @@ from utils import get_network, get_mydataloader, get_weighted_mydataloader
 from sklearn.metrics import f1_score, classification_report, confusion_matrix, cohen_kappa_score, recall_score, precision_score
 
 
-def save_model_config(model, args, train_config, save_path):
-    """保存模型配置到YAML文件"""
-    config = {
-        'model_name': args.net,
-        'model_architecture': {
-            'layers': [],
-            'total_parameters': 0,
-            'trainable_parameters': 0
-        },
-        'training_config': {
-            'batch_size': args.b,
-            'learning_rate': args.lr,
-            'epochs': args.epoch,
-            'seed': args.seed,
-            'weight_decay': args.weight_d,
-            'beta': args.beta,
-            'gamma': args.gamma,
-            'gpu': bool(args.gpu),
-            'optimizer': 'AdamW',
-            'loss_function': 'CB_loss with focal',
-            'scheduler': 'LambdaLR with warmup and cosine decay'
-        },
-        'performance_metrics': {
-            'best_accuracy': 0,
-            'best_epoch': 0,
-            'final_metrics': {
-                'accuracy': 0,
-                'f1_score': 0,
-                'precision': 0,
-                'recall': 0,
-                'kappa': 0
-            }
-        }
+import yaml
+from models.PatchTST_wyh import Configs
+
+def save_hyperparameters(args, model_configs, save_path):
+    """保存训练和模型超参数到YAML文件"""
+    hyperparameters = {
+        'network': args.net,
+        'batch_size': args.b,
+        'learning_rate': args.lr,
+        'epochs': args.epoch,
+        'seed': args.seed,
+        'gamma': args.gamma,
+        'beta': args.beta,
+        'weight_decay': args.weight_d,
+        'gpu': args.gpu,
+        'save_path': args.save_path,
+        'data_path': args.data_path,
+        'loss_ratio':args.loss_ratio,
+        # 模型超参数
+        'model_enc_in': model_configs.enc_in,
+        'model_seq_len': model_configs.seq_len,
+        'model_pred_len': model_configs.pred_len,
+        'model_e_layers': model_configs.e_layers,
+        'model_n_heads': model_configs.n_heads,
+        'model_d_model': model_configs.d_model,
+        'model_d_ff': model_configs.d_ff,
+        'model_dropout': model_configs.dropout,
+        'model_fc_dropout': model_configs.fc_dropout,
+        'model_head_dropout': model_configs.head_dropout,
+        'model_patch_len': model_configs.patch_len,
+        'model_stride': model_configs.stride,
+        'model_padding_patch': model_configs.padding_patch,
+        'model_conv1d_kernel_size': model_configs.conv1d_kernel_size,
+        'model_conv1d_out_channels': model_configs.conv1d_out_channels,
+        'model_individual': model_configs.individual,
+        'model_revin': model_configs.revin,
+        'model_affine': model_configs.affine,
+        'model_subtract_last': model_configs.subtract_last,
+        'model_decomposition': model_configs.decomposition,
+        'model_kernel_size': model_configs.kernel_size,
+        'model_num_classes': model_configs.num_classes,
+        'model_classifier_dropout': model_configs.classifier_dropout,
+        'model_use_weighted_loss': model_configs.use_weighted_loss
     }
+    
+    with open(save_path, 'w') as file:
+        yaml.dump(hyperparameters, file)
 
 
 def train(train_loader, network, optimizer, epoch, loss_function, samples_per_cls):
@@ -108,7 +121,7 @@ def train(train_loader, network, optimizer, epoch, loss_function, samples_per_cl
         loss_ce = loss_function(outputs, labels)
         # 组合损失(这里CB loss的权重为0，实际上只使用了CE loss)
         # loss = 1.0 * loss_ce + 0.0 * loss_cb
-        loss = 0.25*loss_ce + 0.75*loss_cb # class-balanced focal loss (CMI-Net+CB focal loss)
+        loss = (1 - args.loss_ratio)*loss_ce + args.loss_ratio*loss_cb # class-balanced focal loss (CMI-Net+CB focal loss)
         
         # 如果启用权重衰减，添加正则化损失
         if args.weight_d > 0:
@@ -232,9 +245,9 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--net', type=str, default='PatchTST_wyh', help='net type')
     parser.add_argument('--gpu', type = int, default=1, help='use gpu or not')  # 选择是否使用 GPU（1 表示使用 GPU，0 表示使用 CPU）。
-    parser.add_argument('--b', type=int, default=256, help='batch size for dataloader')
+    parser.add_argument('--b', type=int, default=1024, help='batch size for dataloader')
     parser.add_argument('--lr', type=float, default=0.0001, help='initial learning rate')
-    parser.add_argument('--epoch',type=int, default=100, help='total training epoches')
+    parser.add_argument('--epoch',type=int, default=200, help='total training epoches')
     parser.add_argument('--seed',type=int, default=10, help='seed')
     parser.add_argument('--gamma',type=float, default=3.0, help='the gamma of focal loss')
     parser.add_argument('--beta',type=float, default=0.9999, help='the beta of class balanced loss')
@@ -242,6 +255,10 @@ if __name__ == '__main__':
     parser.add_argument('--save_path',type=str, default='setting0', help='saved path of each setting') #
     parser.add_argument('--data_path',type=str, default='E:\\program\\aaa_DL_project\\0000PatchTST-TFC\\CMI-Net\\data\\new_goat_25hz_3axis.pt', help='saved path of input data')
     # parser.add_argument('--data_path',type=str, default='/data1/wangyonghua/0000PatchTST-TFC/CMI-Net/data/new_goat_25hz_3axis.pt', help='saved path of input data')
+   
+    parser.add_argument('--loss_ratio', type=float, default=0.9, help='ratio of CB loss in total loss')
+  
+   
     args = parser.parse_args()
 
     device = torch.device("cuda:0" if args.gpu > 0 and torch.cuda.is_available() else "cpu") # 条件运算符，如果 args.gpu > 0 并且 torch.cuda.is_available() 为 True，则使用 GPU，否则使用 CPU
@@ -303,7 +320,7 @@ if __name__ == '__main__':
     mode='min', 
     factor=0.5,       # 学习率每次降低为当前值的50%（原为10%）
     patience=15,      # 等待15个epoch无改善再降低（原为10）
-    min_lr=1e-5,      # 最低学习率从1e-6提高到1e-5
+    min_lr=1e-6,      # 最低学习率从1e-6提高到1e-5
     # verbose=True       # 打印学习率更新日志
     )
 
@@ -394,6 +411,23 @@ if __name__ == '__main__':
     plt.xlabel('n_iter',font_1)
     plt.ylabel('Loss',font_1)
 
+       #plot loss varying over time
+    fig4=plt.figure(figsize=(12,9))
+    plt.title('valid_Loss',font_1)
+    index_valid = list(range(1,len(Valid_Loss)+1))
+    plt.plot(index_valid,Valid_Loss,color='red', label='valid_loss')
+    plt.legend(fontsize=16)
+    plt.xticks(fontsize=12)
+    plt.yticks(fontsize=12)
+    plt.grid()
+    plt.xlim(0,args.epoch)
+    plt.xlabel('n_iter',font_1)
+    plt.ylabel('Loss',font_1)
+
+    loss_figuresavedpath = os.path.join(checkpoint_path,'valid_Loss_curve.png')
+    plt.savefig(loss_figuresavedpath)
+    # plt.show()
+
     fs_figuresavedpath = os.path.join(checkpoint_path,'F1-score.png')
     plt.savefig(fs_figuresavedpath)
     # plt.show()
@@ -413,8 +447,9 @@ if __name__ == '__main__':
     
     ######load the best trained model and test testing data  ，测试函数，推理
     best_net = get_network(args)
-    best_net.load_state_dict(torch.load(best_weights_path,weights_only=True))
-    
+    # best_net.load_state_dict(torch.load(best_weights_path,weights_only=True))
+    best_net.load_state_dict(torch.load(best_weights_path))
+
     total_num_paras, trainable_num_paras = get_parameter_number(best_net)
     print('The total number of network parameters = {}'.format(total_num_paras), file=f)
     print('The trainable number of network parameters = {}'.format(trainable_num_paras), file=f)
@@ -514,22 +549,11 @@ if __name__ == '__main__':
 
         show_confusion_matrix(test_target, test_predict)
 
-        # # 创建训练配置字典
-        # train_config = {
-        #     'best_accuracy': best_acc,
-        #     'best_epoch': best_epoch,
-        #     'final_metrics': {
-        #         'accuracy': float(accuracy_test),
-        #         'f1_score': float(fs_test),
-        #         'precision': float(precision_test),
-        #         'recall': float(recall_test),
-        #         'kappa': float(kappa_value)
-        #     }
-        # } 
-
-        #   # 保存模型配置
-        # save_model_config(best_net, args, train_config, checkpoint_path)
     
     if args.gpu:
         print('GPU INFO.....', file=f)
         print(torch.cuda.memory_summary(), end='', file=f)
+
+    model_configs = Configs()
+    hyperparameters_save_path = os.path.join(checkpoint_path, 'hyperparameters.yaml')
+    save_hyperparameters(args, model_configs, hyperparameters_save_path)
