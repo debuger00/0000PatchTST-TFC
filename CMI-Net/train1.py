@@ -236,12 +236,12 @@ if __name__ == '__main__':
     parser.add_argument('--lr', type=float, default=0.0001, help='initial learning rate')
     parser.add_argument('--epoch',type=int, default=50, help='total training epoches')
     parser.add_argument('--seed',type=int, default=10, help='seed')
-    parser.add_argument('--gamma',type=float, default=2.0, help='the gamma of focal loss')
-    parser.add_argument('--beta',type=float, default=0.999, help='the beta of class balanced loss')
-    parser.add_argument('--weight_d',type=float, default=0.02, help='weight decay for regularization')  # 权重衰减 系数 
+    parser.add_argument('--gamma',type=float, default=3.0, help='the gamma of focal loss')
+    parser.add_argument('--beta',type=float, default=0.9999, help='the beta of class balanced loss')
+    parser.add_argument('--weight_d',type=float, default=0.1, help='weight decay for regularization')  # 权重衰减 系数 
     parser.add_argument('--save_path',type=str, default='setting0', help='saved path of each setting') #
-    parser.add_argument('--data_path',type=str, default='E:\\program\\aaa_DL_project\\0000PatchTST-TFC\\CMI-Net\\data\\new_goat_25hz_3axis.pt', help='saved path of input data')
-    # parser.add_argument('--data_path',type=str, default='/data1/wangyonghua/0000PatchTST-TFC/CMI-Net/data/new_goat_25hz_3axis.pt', help='saved path of input data')
+    # parser.add_argument('--data_path',type=str, default='E:\\program\\aaa_DL_project\\0000PatchTST-TFC\\CMI-Net\\data\\new_goat_25hz_3axis.pt', help='saved path of input data')
+    parser.add_argument('--data_path',type=str, default='/data1/wangyonghua/0000PatchTST-TFC/CMI-Net/data/new_goat_25hz_3axis.pt', help='saved path of input data')
     args = parser.parse_args()
 
     device = torch.device("cuda:0" if args.gpu > 0 and torch.cuda.is_available() else "cpu") # 条件运算符，如果 args.gpu > 0 并且 torch.cuda.is_available() 为 True，则使用 GPU，否则使用 CPU
@@ -413,9 +413,8 @@ if __name__ == '__main__':
     
     ######load the best trained model and test testing data  ，测试函数，推理
     best_net = get_network(args)
-    # best_net.load_state_dict(torch.load(best_weights_path,weights_only=True))
-    best_net.load_state_dict(torch.load(best_weights_path))
-
+    best_net.load_state_dict(torch.load(best_weights_path,weights_only=True))
+    
     total_num_paras, trainable_num_paras = get_parameter_number(best_net)
     print('The total number of network parameters = {}'.format(total_num_paras), file=f)
     print('The trainable number of network parameters = {}'.format(trainable_num_paras), file=f)
