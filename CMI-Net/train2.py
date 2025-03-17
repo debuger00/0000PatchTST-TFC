@@ -75,9 +75,15 @@ def train(train_loader, network, optimizer, epoch, loss_function, samples_per_cl
             outputs = network(images)
             loss_type = "focal"
 
-            # 使用损失函数
-            loss = loss_function(outputs, labels)
+            # 计算类别平衡损失(Class Balanced Loss)
+            loss_cb = CB_loss(labels, outputs, samples_per_cls, 5, loss_type, args.beta, args.gamma)
 
+                # 计算交叉熵损失
+            loss_ce = loss_function(outputs, labels)
+            # 组合损失(这里CB loss的权重为0，实际上只使用了CE loss)
+            # loss = 1.0 * loss_ce + 0.0 * loss_cb
+            loss = 0.25*loss_ce + 0.75*loss_cb # class-balanced focal loss (CMI-Net+CB focal loss)
+ 
             if args.weight_d > 0:
                 loss += reg_loss(network)
 
@@ -357,8 +363,11 @@ if __name__ == '__main__':
     parser.add_argument('--weight_d', type=float, default=0.01, help='weight decay for regularization')
     parser.add_argument('--save_path', type=str, default='experiments/default_run',
                         help='path for saving all outputs (checkpoints, logs, etc)')
+    # parser.add_argument('--data_path', type=str,
+    #                     default='C:\\Users\\10025\\Desktop\\0000PatchTST-TFC-main\\0000PatchTST-TFC-main\\CMI-Net\\data\\new_goat_25hz_3axis.pt',
+    #                     help='saved path of input data')
     parser.add_argument('--data_path', type=str,
-                        default='C:\\Users\\10025\\Desktop\\0000PatchTST-TFC-main\\0000PatchTST-TFC-main\\CMI-Net\\data\\new_goat_25hz_3axis.pt',
+                        default='/data1/wangyonghua/0000PatchTST-TFC/CMI-Net/data/new_goat_25hz_3axis.pt',
                         help='saved path of input data')
     parser.add_argument('--patience', type=int, default=20, help='patience for early stopping')
     parser.add_argument('--num_classes', type=int, default=5, help='number of classes in the dataset')

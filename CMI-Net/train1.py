@@ -233,12 +233,12 @@ if __name__ == '__main__':
     parser.add_argument('--net', type=str, default='PatchTST_wyh', help='net type')
     parser.add_argument('--gpu', type = int, default=1, help='use gpu or not')  # 选择是否使用 GPU（1 表示使用 GPU，0 表示使用 CPU）。
     parser.add_argument('--b', type=int, default=256, help='batch size for dataloader')
-    parser.add_argument('--lr', type=float, default=0.001, help='initial learning rate')
+    parser.add_argument('--lr', type=float, default=0.0001, help='initial learning rate')
     parser.add_argument('--epoch',type=int, default=100, help='total training epoches')
     parser.add_argument('--seed',type=int, default=10, help='seed')
     parser.add_argument('--gamma',type=float, default=3.0, help='the gamma of focal loss')
     parser.add_argument('--beta',type=float, default=0.9999, help='the beta of class balanced loss')
-    parser.add_argument('--weight_d',type=float, default=0.1, help='weight decay for regularization')  # 权重衰减 系数 
+    parser.add_argument('--weight_d',type=float, default=0.001, help='weight decay for regularization')  # 权重衰减 系数 
     parser.add_argument('--save_path',type=str, default='setting0', help='saved path of each setting') #
     # parser.add_argument('--data_path',type=str, default='E:\\program\\aaa_DL_project\\0000PatchTST-TFC\\CMI-Net\\data\\new_goat_25hz_3axis.pt', help='saved path of input data')
     parser.add_argument('--data_path',type=str, default='/data1/wangyonghua/0000PatchTST-TFC/CMI-Net/data/new_goat_25hz_3axis.pt', help='saved path of input data')
@@ -378,7 +378,10 @@ if __name__ == '__main__':
     plt.xlabel('n_iter',font_1)
     plt.ylabel('Loss',font_1)
 
-    
+    loss_figuresavedpath = os.path.join(checkpoint_path,'Loss_curve.png')
+    plt.savefig(loss_figuresavedpath)
+    # plt.show()
+
     #plot f1 score varying over time
     fig3=plt.figure(figsize=(12,9))
     plt.title('F1-score',font_1)
