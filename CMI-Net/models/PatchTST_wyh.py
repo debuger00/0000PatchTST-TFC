@@ -24,7 +24,7 @@ class Configs:
         # 模型结构参数
         self.e_layers = 2        # encoder层数
         self.n_heads = 8         # 注意力头数
-        self.d_model = 32       # 模型维度
+        self.d_model = 128       # 模型维度
         self.d_ff = 256         # 前馈网络维度
         self.dropout = 0.2       # dropout率
         self.fc_dropout = 0.2    # 全连接层dropout率
