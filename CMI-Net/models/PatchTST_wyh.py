@@ -24,15 +24,15 @@ class Configs:
         # 模型结构参数
         self.e_layers = 1        # encoder层数
         self.n_heads = 8         # 注意力头数
-        self.d_model = 128       # 模型维度
+        self.d_model =  32     # 模型维度
         self.d_ff = 256         # 前馈网络维度
         self.dropout = 0.2       # dropout率
         self.fc_dropout = 0.2    # 全连接层dropout率
         self.head_dropout = 0.2  # 输出头dropout率
         
         # Patch相关参数 
-        self.patch_len = 5      # patch长度
-        self.stride = 3          # patch步长
+        self.patch_len = 8      # patch长度
+        self.stride = 4          # patch步长
         self.padding_patch = 'end'  # patch填充方式
         
         # 1D卷积参数
