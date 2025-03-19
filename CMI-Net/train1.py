@@ -254,7 +254,8 @@ if __name__ == '__main__':
     parser.add_argument('--beta',type=float, default=0.999, help='the beta of class balanced loss')
     parser.add_argument('--weight_d',type=float, default=0.001, help='weight decay for regularization')  # 权重衰减 系数 
     parser.add_argument('--save_path',type=str, default='setting0', help='saved path of each setting') #
-    parser.add_argument('--data_path',type=str, default='E:\\program\\aaa_DL_project\\0000PatchTST-TFC\\CMI-Net\\data\\new_goat_25hz_3axis.pt', help='saved path of input data')
+    # parser.add_argument('--data_path',type=str, default='E:\\program\\aaa_DL_project\\0000PatchTST-TFC\\CMI-Net\\data\\new_goat_25hz_3axis.pt', help='saved path of input data')
+    parser.add_argument('--data_path',type=str, default='E:\\program\\aaa_DL_project\\0000PatchTST-TFC\\CMI-Net\\data\\00goat.pt', help='saved path of input data')
     # parser.add_argument('--data_path',type=str, default='/data1/wangyonghua/0000PatchTST-TFC/CMI-Net/data/new_goat_25hz_3axis.pt', help='saved path of input data')
    
     parser.add_argument('--loss_ratio', type=float, default=0.9, help='ratio of CB loss in total loss')
@@ -280,6 +281,16 @@ if __name__ == '__main__':
     # print(f"Model is on device: {net.parameters().device}")
     print('Setting: Epoch: {}, Batch size: {}, Learning rate: {:.6f}, gpu:{}, seed:{}'.format(args.epoch, args.b, args.lr, args.gpu, args.seed))
 
+     # Load the encoder_t weights
+    encoder_t_weights = torch.load("E:\\program\\aaa_DL_project\\0000PatchTST-TFC\\CMI-Net\\预训练权重\\encoder_t_weights.pt")
+    
+    # Filter out the classifier weights if present
+    encoder_t_weights = {k: v for k, v in encoder_t_weights.items() if 'classifier' not in k}
+    
+    # Load the weights into the model
+    model_dict = net.state_dict()
+    model_dict.update(encoder_t_weights)
+    net.load_state_dict(model_dict)
 
 
 
@@ -560,33 +571,40 @@ if __name__ == '__main__':
     save_hyperparameters(args, model_configs, hyperparameters_save_path)
 
     def plot_tsne(model, data_loader, device):
-    model.eval()
-    features = []
-    labels = []
+        model.eval()
+        features = []
+        labels = []
 
-    with torch.no_grad():
-        for images, lbls in data_loader:
-            images = images.to(device)
-            lbls = lbls.to(device)
-            feats = model.extract_features(images)
-            features.append(feats.cpu().numpy())
-            labels.append(lbls.cpu().numpy())
+        with torch.no_grad():
+            for images, lbls in data_loader:
+                images = images.to(device)
+                lbls = lbls.to(device)
+                feats = model.extract_features(images)
+                features.append(feats.cpu().numpy())
+                labels.append(lbls.cpu().numpy())
 
-    features = np.concatenate(features, axis=0)
-    labels = np.concatenate(labels, axis=0)
+        features = np.concatenate(features, axis=0)
+        labels = np.concatenate(labels, axis=0)
 
-    tsne = TSNE(n_components=2, random_state=0)
-    tsne_results = tsne.fit_transform(features)
+        tsne = TSNE(n_components=2, random_state=0)
+        tsne_results = tsne.fit_transform(features)
 
-    plt.figure(figsize=(10, 8))
-    scatter = plt.scatter(tsne_results[:, 0], tsne_results[:, 1], c=labels, cmap='viridis', alpha=0.7)
-    plt.colorbar(scatter)
-    plt.title('t-SNE of PatchTST Features')
-    plt.xlabel('t-SNE 1')
-    plt.ylabel('t-SNE 2')
-    plt.show()
-    cm_figuresavedpath = os.path.join(checkpoint_path,'t-SNE.png')
-    plt.savefig(cm_figuresavedpath)
+        plt.figure(figsize=(10, 8))
+        unique_labels = np.unique(labels)
+        Class_labels = ['standing', 'running', 'grazing', 'trotting', 'walking']
+        
+        for label in unique_labels:
+            indices = labels == label
+            plt.scatter(tsne_results[indices, 0], tsne_results[indices, 1], label=Class_labels[label], alpha=0.7)
+
+        plt.colorbar()
+        plt.title('t-SNE of PatchTST Features')
+        plt.xlabel('t-SNE 1')
+        plt.ylabel('t-SNE 2')
+        plt.legend()  # 添加图例
+        # plt.show()
+        cm_figuresavedpath = os.path.join(checkpoint_path, 't-SNE.png')
+        plt.savefig(cm_figuresavedpath)
     
     # Assuming valid_loader is your validation data loader
     plot_tsne(net, valid_loader, device)

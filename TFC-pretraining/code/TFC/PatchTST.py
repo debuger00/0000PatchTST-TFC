@@ -11,7 +11,7 @@ import numpy as np
 from layers.PatchTST_backbone import PatchTST_backbone
 from layers.PatchTST_layers import series_decomp
 
-# from AAR_Configs import Config as Configs
+from AAR_Configs import Config as Configs
 
 # class Configs:
 #     def __init__(self):
@@ -108,13 +108,15 @@ class PatchTSTNet(nn.Module):
         decomposition = configs.decomposition
         kernel_size = configs.kernel_size
         
- 
+        
+        feature_dim = configs.feature_dim
+
         
         # model
         self.decomposition = decomposition
         if self.decomposition:
             self.decomp_module = series_decomp(kernel_size)
-            self.model_trend = PatchTST_backbone(c_in=c_in, context_window = context_window, target_window=target_window, patch_len=patch_len, stride=stride, 
+            self.model_trend = PatchTST_backbone(c_in=configs.conv1d_out_channels, context_window = context_window, target_window=target_window, patch_len=patch_len, stride=stride, 
                                   max_seq_len=max_seq_len, n_layers=n_layers, d_model=d_model,
                                   n_heads=n_heads, d_k=d_k, d_v=d_v, d_ff=d_ff, norm=norm, attn_dropout=attn_dropout,
                                   dropout=dropout, act=act, key_padding_mask=key_padding_mask, padding_var=padding_var, 
@@ -122,7 +124,7 @@ class PatchTSTNet(nn.Module):
                                   pe=pe, learn_pe=learn_pe, fc_dropout=fc_dropout, head_dropout=head_dropout, padding_patch = padding_patch,
                                   pretrain_head=pretrain_head, head_type=head_type, individual=individual, revin=revin, affine=affine,
                                   subtract_last=subtract_last, verbose=verbose, **kwargs)
-            self.model_res = PatchTST_backbone(c_in=c_in, context_window = context_window, target_window=target_window, patch_len=patch_len, stride=stride, 
+            self.model_res = PatchTST_backbone(c_in=configs.conv1d_out_channels, context_window = context_window, target_window=target_window, patch_len=patch_len, stride=stride, 
                                   max_seq_len=max_seq_len, n_layers=n_layers, d_model=d_model,
                                   n_heads=n_heads, d_k=d_k, d_v=d_v, d_ff=d_ff, norm=norm, attn_dropout=attn_dropout,
                                   dropout=dropout, act=act, key_padding_mask=key_padding_mask, padding_var=padding_var, 
@@ -131,7 +133,7 @@ class PatchTSTNet(nn.Module):
                                   pretrain_head=pretrain_head, head_type=head_type, individual=individual, revin=revin, affine=affine,
                                   subtract_last=subtract_last, verbose=verbose, **kwargs)
         else:
-            self.model = PatchTST_backbone(c_in=c_in, context_window = context_window, target_window=target_window, patch_len=patch_len, stride=stride, 
+            self.model = PatchTST_backbone(c_in=configs.conv1d_out_channels, context_window = context_window, target_window=target_window, patch_len=patch_len, stride=stride, 
                                   max_seq_len=max_seq_len, n_layers=n_layers, d_model=d_model,
                                   n_heads=n_heads, d_k=d_k, d_v=d_v, d_ff=d_ff, norm=norm, attn_dropout=attn_dropout,
                                   dropout=dropout, act=act, key_padding_mask=key_padding_mask, padding_var=padding_var, 
@@ -141,8 +143,47 @@ class PatchTSTNet(nn.Module):
                                   subtract_last=subtract_last, verbose=verbose, **kwargs)
         
 
+        
+        # 修改分类头，增加特征提取能力
+        self.classifier = nn.Sequential(
+
+            # nn.Linear(feature_dim, feature_dim//2),
+            # nn.ReLU(),
+            # nn.Dropout(configs.classifier_dropout),
+            
+            # # 最终分类层
+            # nn.Linear(feature_dim//2, configs.num_classes)
+
+            nn.Linear(feature_dim, 512),
+            nn.GELU(),
+            nn.Dropout(configs.classifier_dropout),
+            nn.Linear(512, 256),
+            nn.GELU(),
+            nn.Linear(256, configs.num_classes)
+        )
+
+    def extract_features(self, x):
+        x = x.squeeze(1)
+        if self.decomposition:
+            res_init, trend_init = self.decomp_module(x)
+            res_init, trend_init = res_init.permute(0,2,1), trend_init.permute(0,2,1)  
+            res = self.model_res(res_init)
+            trend = self.model_trend(trend_init)
+            x = res + trend
+            x = x.permute(0,2,1)
+        else:
+            # x = x.permute(0,2,1)
+            x = self.model(x)
+            x = x.permute(0,2,1)
+        
+        x = x.mean(dim=-1)
+        return x  # 返回特征
+        
     
     def forward(self, x, return_probs=True):           # x: [Batch, Input length, Channel]
+        # 1. 去掉第二维的1，转换为 [batch_size, 50, 3]
+        x = x.squeeze(1)
+       
         if self.decomposition:
             res_init, trend_init = self.decomp_module(x)
             res_init, trend_init = res_init.permute(0,2,1), trend_init.permute(0,2,1)  
@@ -151,24 +192,22 @@ class PatchTSTNet(nn.Module):
             x = res + trend
             x = x.permute(0,2,1)    # x: [Batch, Input length, Channel]
         else:
-            # x = x.permute(0,2,1)    
-            x = self.model(x)       ### 模型输入形状是 [Batch, Channel, Input length]
-            x = x.permute(0,2,1)    # x: [Batch, Input length, Channel]
+            # x = x.permute(0,2,1)    # x: [Batch, Channel, Input length]
+            x = self.model(x)   # [Batch, conv_out_channels, num_patches]
+            x = x.permute(0,2,1)
         
-        # x = x.permute(0,2,1) # x: [Batch, Channel, Input length]
-        # x = x.reshape(x.size(0), -1)# x: [Batch, Channel * Input length]
+        x = x.mean(dim=-1)
 
-        x = x.mean(dim=-1) # [Batch, Input length]
-
-        return x;
-
-        logits = self.classifier(x)  # [Batch, num_classes]
+        return x
+        # 主分类器的logits
+        # logits = self.classifier(x)  # [Batch, num_classes]
         
-        # 根据需要返回概率值或logits
-        if return_probs:
-            probs = F.softmax(logits, dim=-1)
-            return probs
-        return logits
+        # # 根据需要返回概率值或logits
+        # if return_probs:
+        #     return F.softmax(logits, dim=-1)
+        # return logits
+        
+
 
 def PatchTST():
     configs = Configs()

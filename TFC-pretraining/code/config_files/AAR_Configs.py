@@ -20,7 +20,7 @@ class Config(object):
         self.CNNoutput_channel = 10  # CNN输出通道数,对于Epilepsy模型为10
 
         # 训练配置
-        self.num_epoch = 40  # 训练轮数
+        self.num_epoch = 200  # 训练轮数
 
         # 优化器参数
         self.optimizer = 'adam'  # 优化器类型
@@ -42,39 +42,58 @@ class Config(object):
 
 ############################################################################################################
          # 基础参数
+        # 基础参数
         self.enc_in = 3         # 输入特征维度
-        self.seq_len = 50       # 输入序列长度
+        self.seq_len = 50        # 输入序列长度
         self.pred_len = 24       # 预测序列长度
         
         # 模型结构参数
         self.e_layers = 2        # encoder层数
         self.n_heads = 8         # 注意力头数
-        self.d_model =  64       # 模型维度
+        self.d_model = 128       # 模型维度
         self.d_ff = 256         # 前馈网络维度
-        self.dropout = 0.1       # dropout率
-        self.fc_dropout = 0.1    # 全连接层dropout率
-        self.head_dropout = 0.1  # 输出头dropout率
+        self.dropout = 0.2       # dropout率
+        self.fc_dropout = 0.2    # 全连接层dropout率
+        self.head_dropout = 0.2  # 输出头dropout率
         
         # Patch相关参数 
         self.patch_len = 8      # patch长度
         self.stride = 4          # patch步长
         self.padding_patch = 'end'  # patch填充方式
         
+        # 1D卷积参数
+        self.conv1d_kernel_size = 3  # 1D卷积核大小
+        self.conv1d_out_channels = 32  # 1D卷积输出通道数
+        
         # 数据处理参数
         self.individual = False   # 是否独立处理每个特征
-        self.revin = False         # 是否使用RevIN
-        self.affine = False        # RevIN是否使用affine变换
+        self.revin = False        # 是否使用RevIN
+        self.affine = False       # RevIN是否使用affine变换
         self.subtract_last = False  # 是否减去最后一个值
         
         # 分解相关参数
         self.decomposition = False  # 是否使用分解
         self.kernel_size = 25      # 分解核大小
 
+     # 修改预测相关参数为分类参数
+        self.num_classes = 5     # 分类类别数
         
         
         # 分类器特定参数
-        self.classifier_dropout = 0.1  # 分类器dropout率
+        self.classifier_dropout = 0.5  # 分类器dropout率
         self.use_weighted_loss = False # 是否使用加权损失（处理类别不平衡）
+
+        # 1D卷积参数
+        self.conv1d_kernel_size = 3  # 1D卷积核大小
+        self.conv1d_out_channels = 32  # 1D卷积输出通道数
+
+        
+        # 计算特征维度 - 确保结果是整数
+        # 公式1: patch个数 = 取整（（输入序列长度-patch长度）/步长）+ 2
+        patch_num = int((self.seq_len - self.patch_len) / self.stride) + 2
+        # 公式2: 特征维度 = patch个数 * 模型维度
+        self.feature_dim = int(patch_num * self.d_model)  # 特征维
+
 
 class augmentations(object):
     def __init__(self):
