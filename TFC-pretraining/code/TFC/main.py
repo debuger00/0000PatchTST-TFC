@@ -65,7 +65,7 @@ torch.backends.cudnn.deterministic = False
 torch.backends.cudnn.benchmark = False
 np.random.seed(SEED)
 #####################################################
-
+ 
 experiment_log_dir = os.path.join(logs_save_dir, experiment_description, run_description, training_mode + f"_seed_{SEED}_2layertransformer")
 # 'experiments_logs/Exp1/run1/train_linear_seed_0'
 os.makedirs(experiment_log_dir, exist_ok=True)
