@@ -8,6 +8,13 @@ from torch import Tensor
 import torch.nn.functional as F
 import numpy as np
 
+import os
+import sys
+
+script_path = os.path.dirname(os.path.abspath(__file__))
+sys.path.append(os.path.dirname(script_path))
+
+
 from models.layers.PatchTST_backbone import PatchTST_backbone
 from models.layers.PatchTST_layers import series_decomp
 
