@@ -12,6 +12,8 @@ from torch.utils.data import DataLoader
 
 from dataset import My_Dataset
 
+# import wandb
+
 def get_network(args):
     """ return given network
     """
@@ -213,4 +215,6 @@ def get_weighted_mydataloader(pathway, data_id = 1, batch_size=16, num_workers=2
     return Data_loader, weight, number
 
 
-
+# def log_plot_to_wandb(run,fig, title):
+#     """Log a matplotlib figure to WandB."""
+#     run.log({title: wandb.Image(fig)})
