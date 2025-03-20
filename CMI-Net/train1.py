@@ -27,9 +27,10 @@ from Class_balanced_loss import CB_loss
 from conf import settings
 from Regularization import Regularization
 from utils import get_network, get_mydataloader, get_weighted_mydataloader
+from utils import *
 from sklearn.metrics import f1_score, classification_report, confusion_matrix, cohen_kappa_score, recall_score, precision_score
 
-import wandb
+# import wandb
 
 import yaml
 from models.PatchTST_wyh import Configs
@@ -258,7 +259,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--net', type=str, default='PatchTST_wyh', help='net type')
     parser.add_argument('--gpu', type = int, default=1, help='use gpu or not')  # 选择是否使用 GPU（1 表示使用 GPU，0 表示使用 CPU）。
-    parser.add_argument('--b', type=int, default=1024, help='batch size for dataloader')
+    parser.add_argument('--b', type=int, default=512, help='batch size for dataloader')
     parser.add_argument('--lr', type=float, default=0.0001, help='initial learning rate')
     parser.add_argument('--epoch',type=int, default=100, help='total training epoches')
     parser.add_argument('--seed',type=int, default=10, help='seed')
@@ -274,6 +275,8 @@ if __name__ == '__main__':
   
    
     args = parser.parse_args()
+    
+    model_configs = Configs()
 
     device = torch.device("cuda:0" if args.gpu > 0 and torch.cuda.is_available() else "cpu") # 条件运算符，如果 args.gpu > 0 并且 torch.cuda.is_available() 为 True，则使用 GPU，否则使用 CPU
 
@@ -304,12 +307,42 @@ if __name__ == '__main__':
     # model_dict = net.state_dict()
     # model_dict.update(encoder_t_weights)
     # net.load_state_dict(model_dict)
+    
 
+## 使用wandb 进行超参数搜索
+#    
 
+#     run = wandb.init(project="CMI-Net",settings=wandb.Settings(init_timeout=300),name="PatchTST_wyh",config={
+#         'batch_size': args.b,
+#         'learning_rate': args.lr,
+#         'epochs': args.epoch,
+#         'gamma': args.gamma,
+#         'beta': args.beta,
+#         'loss_ratio': args.loss_ratio,
+#         'model_d_model': model_configs.d_model,
+#         'model_patch_len': model_configs.patch_len,
+#         'model_stride': model_configs.stride,
 
-    wandb.init(project="CMI-Net", name="PatchTST_wyh",config={
-        
-    })
+#     })
+
+#     sweep_config = {
+#         'method': 'random',
+#         'metric': {
+#             'name': 'valid_accuracy',
+#             'goal': 'maximize'
+#         },
+#         'parameters': {
+#             'gamma': {'values': [1.0, 2.0, 3.0]},   
+#             'beta': {'values': [0.999, 0.9999, 0.99999]},   
+#             'loss_ratio': {'values': [0.1, 0.5, 0.9]},
+#         }
+#     }
+
+#     sweep_id = wandb.sweep(sweep_config, project="CMI-Net", name="PatchTST_wyh")
+
+#   # 使用 wandb.agent 来运行 sweep
+#     wandb.agent(sweep_id, function=train)
+
 
 
     sysstr = platform.system()
@@ -406,7 +439,7 @@ if __name__ == '__main__':
     plt.xlim(0,args.epoch)
     plt.xlabel('n_iter',font_1)
     plt.ylabel('Accuracy',font_1)
-    
+    # log_plot_to_wandb(run,fig1, "Accuracy Curve")
     acc_figuresavedpath = os.path.join(checkpoint_path,'Accuracy_curve.png')
     plt.savefig(acc_figuresavedpath)
     # plt.show()
@@ -424,7 +457,7 @@ if __name__ == '__main__':
     plt.xlim(0,args.epoch)
     plt.xlabel('n_iter',font_1)
     plt.ylabel('Loss',font_1)
-
+    # log_plot_to_wandb(run,fig2, "Loss Curve")
     loss_figuresavedpath = os.path.join(checkpoint_path,'Loss_curve.png')
     plt.savefig(loss_figuresavedpath)
     # plt.show()
@@ -440,6 +473,7 @@ if __name__ == '__main__':
     plt.xlim(0,args.epoch)
     plt.xlabel('n_iter',font_1)
     plt.ylabel('Loss',font_1)
+    # log_plot_to_wandb(run,fig3, "Loss Curve")
     fs_figuresavedpath = os.path.join(checkpoint_path, 'F1-score.png')
     plt.savefig(fs_figuresavedpath)
     # plt.show()
@@ -457,6 +491,7 @@ if __name__ == '__main__':
     plt.xlabel('n_iter',font_1)
     plt.ylabel('Loss',font_1)
 
+    # log_plot_to_wandb(run,fig4, "F1-score Curve")
     loss_figuresavedpath = os.path.join(checkpoint_path,'valid_Loss_curve.png')
     plt.savefig(loss_figuresavedpath)
     # plt.show()
@@ -561,7 +596,7 @@ if __name__ == '__main__':
         def show_confusion_matrix(validations, predictions):
             matrix = confusion_matrix(validations, predictions) #No one-hot
             #matrix = confusion_matrix(validations.argmax(axis=1), predictions.argmax(axis=1)) #One-hot
-            plt.figure(figsize=(6, 4))
+            fig5=plt.figure(figsize=(6, 4))
             sns.heatmap(matrix,
                   cmap="coolwarm",
                   linecolor='white',
@@ -574,6 +609,7 @@ if __name__ == '__main__':
             plt.ylabel("True Label")
             plt.xlabel("Predicted Label")
             cm_figuresavedpath = os.path.join(checkpoint_path,'Confusion_matrix.png')
+            # log_plot_to_wandb(run,fig5, "F1-score Curve")
             plt.savefig(cm_figuresavedpath)
             # plt.show()
 
@@ -584,7 +620,7 @@ if __name__ == '__main__':
         print('GPU INFO.....', file=f)
         print(torch.cuda.memory_summary(), end='', file=f)
 
-    model_configs = Configs()
+
     hyperparameters_save_path = os.path.join(checkpoint_path, 'hyperparameters.yaml')
     save_hyperparameters(args, model_configs, hyperparameters_save_path)
 
@@ -607,7 +643,7 @@ if __name__ == '__main__':
         tsne = TSNE(n_components=2, random_state=0)
         tsne_results = tsne.fit_transform(features)
 
-        plt.figure(figsize=(10, 8))
+        fig6=plt.figure(figsize=(10, 8))
         unique_labels = np.unique(labels)
         Class_labels = ['standing', 'running', 'grazing', 'trotting', 'walking']
         
@@ -621,8 +657,20 @@ if __name__ == '__main__':
         plt.ylabel('t-SNE 2')
         plt.legend()  # 添加图例
         # plt.show()
+        # log_plot_to_wandb(run,fig6, "t-SNE Plot")
         cm_figuresavedpath = os.path.join(checkpoint_path, 't-SNE.png')
         plt.savefig(cm_figuresavedpath)
     
     # Assuming valid_loader is your validation data loader
     plot_tsne(net, valid_loader, device)
+
+    # run.log({"Train_Loss": Train_Loss   ,
+    # "Train_Accuracy": Train_Accuracy,
+    # "Valid_Loss": Valid_Loss,
+    # "Valid_Accuracy": Valid_Accuracy,
+    # "f1_s": f1_s,
+    # "test_target": test_target,
+    # "test_predict": test_predict,
+    # })
+
+    # run.finish()
