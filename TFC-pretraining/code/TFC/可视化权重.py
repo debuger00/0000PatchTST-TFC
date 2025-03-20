@@ -64,11 +64,12 @@ def print_weights_shapes(weights_path):
 
 
 if __name__ == "__main__":
-    checkpoint_path = "E:/program/aaa_DL_project/0000PatchTST-TFC/TFC-pretraining/code/experiments_logs/AAR_2_AAR/run1/pre_train_seed_42_2layertransformer/saved_models/ckp_last.pt"
+    # checkpoint_path = "E:/program/aaa_DL_project/0000PatchTST-TFC/TFC-pretraining/code/experiments_logs/AAR_2_AAR/run1/pre_train_seed_42_2layertransformer/saved_models/ckp_last.pt"
+    checkpoint_path = "/data1/wangyonghua/project/0000PatchTST-TFC/TFC-pretraining/code/experiments_logs/AAR_2_AAR/run1/pre_train_seed_42_2layertransformer/saved_models/ckp_last.pt"
     print_model_weights_shape(checkpoint_path)
 
-    export_path = "E:/program/aaa_DL_project/0000PatchTST-TFC/TFC-pretraining/code/experiments_logs/AAR_2_AAR/run1/pre_train_seed_42_2layertransformer/saved_models/encoder_t_weights.pt"
+    export_path = "/data1/wangyonghua/project/0000PatchTST-TFC/TFC-pretraining/code/experiments_logs/AAR_2_AAR/run1/pre_train_seed_42_2layertransformer/saved_models/encoder_t_weights.pt"
     export_encoder_t_weights(checkpoint_path, export_path)
     print("#"*100)
-    weights_path = "E:/program/aaa_DL_project/0000PatchTST-TFC/TFC-pretraining/code/experiments_logs/AAR_2_AAR/run1/pre_train_seed_42_2layertransformer/saved_models/encoder_t_weights.pt"
+    weights_path = "/data1/wangyonghua/project/0000PatchTST-TFC/TFC-pretraining/code/experiments_logs/AAR_2_AAR/run1/pre_train_seed_42_2layertransformer/saved_models/encoder_t_weights.pt"
     print_weights_shapes(weights_path)

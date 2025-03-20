@@ -67,14 +67,14 @@ class TFC(nn.Module):
             nn.Linear(1536, 512 ),  # 使用d_model作为输入维度
             nn.BatchNorm1d(512),
             nn.ReLU(),
-            nn.Linear(512, 128)
+            nn.Linear(512, 256)
         )
         
         self.projector_f = nn.Sequential(
             nn.Linear(1536, 512),  # 使用d_model作为输入维度
             nn.BatchNorm1d(512),
             nn.ReLU(),
-            nn.Linear(512, 128)
+            nn.Linear(512, 256)
         )
 
     def forward(self, x_in_t, x_in_f):

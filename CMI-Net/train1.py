@@ -37,6 +37,17 @@ from sklearn.manifold import TSNE
 def save_hyperparameters(args, model_configs, save_path):
     """保存训练和模型超参数到YAML文件"""
     hyperparameters = {
+        '#####batch_size': args.b,
+        '#####learning_rate': args.lr,
+        '######epochs': args.epoch,
+        '######gamma': args.gamma,
+        '######beta': args.beta,
+        '######loss_ratio': args.loss_ratio,
+        '######model_d_model': model_configs.d_model,
+        '#####model_patch_len': model_configs.patch_len,
+        '#####model_stride': model_configs.stride,
+
+
         'network': args.net,
         'batch_size': args.b,
         'learning_rate': args.lr,
@@ -250,13 +261,13 @@ if __name__ == '__main__':
     parser.add_argument('--lr', type=float, default=0.0001, help='initial learning rate')
     parser.add_argument('--epoch',type=int, default=100, help='total training epoches')
     parser.add_argument('--seed',type=int, default=10, help='seed')
-    parser.add_argument('--gamma',type=float, default=1.0, help='the gamma of focal loss')
-    parser.add_argument('--beta',type=float, default=0.999, help='the beta of class balanced loss')
+    parser.add_argument('--gamma',type=float, default=5.0, help='the gamma of focal loss')
+    parser.add_argument('--beta',type=float, default=0.9999, help='the beta of class balanced loss')
     parser.add_argument('--weight_d',type=float, default=0.001, help='weight decay for regularization')  # 权重衰减 系数 
     parser.add_argument('--save_path',type=str, default='setting0', help='saved path of each setting') #
     # parser.add_argument('--data_path',type=str, default='E:\\program\\aaa_DL_project\\0000PatchTST-TFC\\CMI-Net\\data\\new_goat_25hz_3axis.pt', help='saved path of input data')
-    parser.add_argument('--data_path',type=str, default='E:\\program\\aaa_DL_project\\0000PatchTST-TFC\\CMI-Net\\data\\00goat.pt', help='saved path of input data')
-    # parser.add_argument('--data_path',type=str, default='/data1/wangyonghua/0000PatchTST-TFC/CMI-Net/data/new_goat_25hz_3axis.pt', help='saved path of input data')
+    # parser.add_argument('--data_path',type=str, default='E:\\program\\aaa_DL_project\\0000PatchTST-TFC\\CMI-Net\\data\\00goat.pt', help='saved path of input data')
+    parser.add_argument('--data_path',type=str, default='./data/00goat.pt', help='saved path of input data')
    
     parser.add_argument('--loss_ratio', type=float, default=0.9, help='ratio of CB loss in total loss')
   
@@ -281,16 +292,15 @@ if __name__ == '__main__':
     # print(f"Model is on device: {net.parameters().device}")
     print('Setting: Epoch: {}, Batch size: {}, Learning rate: {:.6f}, gpu:{}, seed:{}'.format(args.epoch, args.b, args.lr, args.gpu, args.seed))
 
-     # Load the encoder_t weights
-    encoder_t_weights = torch.load("E:\\program\\aaa_DL_project\\0000PatchTST-TFC\\CMI-Net\\预训练权重\\encoder_t_weights.pt")
-    
-    # Filter out the classifier weights if present
-    encoder_t_weights = {k: v for k, v in encoder_t_weights.items() if 'classifier' not in k}
-    
-    # Load the weights into the model
-    model_dict = net.state_dict()
-    model_dict.update(encoder_t_weights)
-    net.load_state_dict(model_dict)
+
+    #  # Load the encoder_t weights
+    # encoder_t_weights = torch.load("E:\\program\\aaa_DL_project\\0000PatchTST-TFC\\CMI-Net\\预训练权重\\encoder_t_weights.pt")
+    # # Filter out the classifier weights if present
+    # encoder_t_weights = {k: v for k, v in encoder_t_weights.items() if 'classifier' not in k}
+    # # Load the weights into the model
+    # model_dict = net.state_dict()
+    # model_dict.update(encoder_t_weights)
+    # net.load_state_dict(model_dict)
 
 
 
