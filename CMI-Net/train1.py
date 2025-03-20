@@ -29,6 +29,7 @@ from Regularization import Regularization
 from utils import get_network, get_mydataloader, get_weighted_mydataloader
 from sklearn.metrics import f1_score, classification_report, confusion_matrix, cohen_kappa_score, recall_score, precision_score
 
+import wandb
 
 import yaml
 from models.PatchTST_wyh import Configs
@@ -281,17 +282,22 @@ if __name__ == '__main__':
     # print(f"Model is on device: {net.parameters().device}")
     print('Setting: Epoch: {}, Batch size: {}, Learning rate: {:.6f}, gpu:{}, seed:{}'.format(args.epoch, args.b, args.lr, args.gpu, args.seed))
 
+
+
      # Load the encoder_t weights
     encoder_t_weights = torch.load("E:\\program\\aaa_DL_project\\0000PatchTST-TFC\\CMI-Net\\预训练权重\\encoder_t_weights.pt")
-    
     # Filter out the classifier weights if present
     encoder_t_weights = {k: v for k, v in encoder_t_weights.items() if 'classifier' not in k}
-    
     # Load the weights into the model
     model_dict = net.state_dict()
     model_dict.update(encoder_t_weights)
     net.load_state_dict(model_dict)
 
+
+
+    wandb.init(project="CMI-Net", name="PatchTST_wyh",config={
+        
+    })
 
 
     sysstr = platform.system()
