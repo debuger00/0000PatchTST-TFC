@@ -257,7 +257,7 @@ def get_parameter_number(net):
 if __name__ == '__main__':
     
     parser = argparse.ArgumentParser()
-    parser.add_argument('--net', type=str, default='PatchTST_wyh', help='net type')
+    parser.add_argument('--net', type=str, default='PatchTST_wyh', help='net type  PatchTST_wyh, GTN')
     parser.add_argument('--gpu', type = int, default=1, help='use gpu or not')  # 选择是否使用 GPU（1 表示使用 GPU，0 表示使用 CPU）。
     parser.add_argument('--b', type=int, default=512, help='batch size for dataloader')
     parser.add_argument('--lr', type=float, default=0.0001, help='initial learning rate')
