@@ -27,6 +27,9 @@ def get_network(args):
     elif args.net == 'PatchTST':
         from models.PatchTST import PatchTST
         net = PatchTST()
+    elif args.net == 'GTN':
+        from models.GTN import GTN
+        net = GTN()
     elif args.net == 'vgg13':
         from models.vgg import vgg13_bn
         net = vgg13_bn()
