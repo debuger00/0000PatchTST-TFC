@@ -27,43 +27,70 @@ from Class_balanced_loss import CB_loss
 from conf import settings
 from Regularization import Regularization
 from utils import get_network, get_mydataloader, get_weighted_mydataloader
+from utils import *
 from sklearn.metrics import f1_score, classification_report, confusion_matrix, cohen_kappa_score, recall_score, precision_score
 
+# import wandb
 
-def save_model_config(model, args, train_config, save_path):
-    """保存模型配置到YAML文件"""
-    config = {
-        'model_name': args.net,
-        'model_architecture': {
-            'layers': [],
-            'total_parameters': 0,
-            'trainable_parameters': 0
-        },
-        'training_config': {
-            'batch_size': args.b,
-            'learning_rate': args.lr,
-            'epochs': args.epoch,
-            'seed': args.seed,
-            'weight_decay': args.weight_d,
-            'beta': args.beta,
-            'gamma': args.gamma,
-            'gpu': bool(args.gpu),
-            'optimizer': 'AdamW',
-            'loss_function': 'CB_loss with focal',
-            'scheduler': 'LambdaLR with warmup and cosine decay'
-        },
-        'performance_metrics': {
-            'best_accuracy': 0,
-            'best_epoch': 0,
-            'final_metrics': {
-                'accuracy': 0,
-                'f1_score': 0,
-                'precision': 0,
-                'recall': 0,
-                'kappa': 0
-            }
-        }
+import yaml
+from models.PatchTST_wyh import Configs
+from sklearn.manifold import TSNE
+
+def save_hyperparameters(args, model_configs, save_path):
+    """保存训练和模型超参数到YAML文件"""
+    hyperparameters = {
+        '#####batch_size': args.b,
+        '#####learning_rate': args.lr,
+        '######epochs': args.epoch,
+        '######gamma': args.gamma,
+        '######beta': args.beta,
+        '######loss_ratio': args.loss_ratio,
+        '######model_d_model': model_configs.d_model,
+        '#####model_patch_len': model_configs.patch_len,
+        '#####model_stride': model_configs.stride,
+
+
+        'network': args.net,
+        'batch_size': args.b,
+        'learning_rate': args.lr,
+        'epochs': args.epoch,
+        'seed': args.seed,
+        'gamma': args.gamma,
+        'beta': args.beta,
+        'weight_decay': args.weight_d,
+        'gpu': args.gpu,
+        'save_path': args.save_path,
+        'data_path': args.data_path,
+        'loss_ratio':args.loss_ratio,
+        # 模型超参数
+        'model_enc_in': model_configs.enc_in,
+        'model_seq_len': model_configs.seq_len,
+        'model_pred_len': model_configs.pred_len,
+        'model_e_layers': model_configs.e_layers,
+        'model_n_heads': model_configs.n_heads,
+        'model_d_model': model_configs.d_model,
+        'model_d_ff': model_configs.d_ff,
+        'model_dropout': model_configs.dropout,
+        'model_fc_dropout': model_configs.fc_dropout,
+        'model_head_dropout': model_configs.head_dropout,
+        'model_patch_len': model_configs.patch_len,
+        'model_stride': model_configs.stride,
+        'model_padding_patch': model_configs.padding_patch,
+        'model_conv1d_kernel_size': model_configs.conv1d_kernel_size,
+        'model_conv1d_out_channels': model_configs.conv1d_out_channels,
+        'model_individual': model_configs.individual,
+        'model_revin': model_configs.revin,
+        'model_affine': model_configs.affine,
+        'model_subtract_last': model_configs.subtract_last,
+        'model_decomposition': model_configs.decomposition,
+        'model_kernel_size': model_configs.kernel_size,
+        'model_num_classes': model_configs.num_classes,
+        'model_classifier_dropout': model_configs.classifier_dropout,
+        'model_use_weighted_loss': model_configs.use_weighted_loss
     }
+    
+    with open(save_path, 'w') as file:
+        yaml.dump(hyperparameters, file)
 
 
 def train(train_loader, network, optimizer, epoch, loss_function, samples_per_cls):
@@ -108,7 +135,7 @@ def train(train_loader, network, optimizer, epoch, loss_function, samples_per_cl
         loss_ce = loss_function(outputs, labels)
         # 组合损失(这里CB loss的权重为0，实际上只使用了CE loss)
         # loss = 1.0 * loss_ce + 0.0 * loss_cb
-        loss = 0.0*loss_ce + 1.0*loss_cb # class-balanced focal loss (CMI-Net+CB focal loss)
+        loss = (1 - args.loss_ratio)*loss_ce + args.loss_ratio*loss_cb # class-balanced focal loss (CMI-Net+CB focal loss)
         
         # 如果启用权重衰减，添加正则化损失
         if args.weight_d > 0:
@@ -230,19 +257,26 @@ def get_parameter_number(net):
 if __name__ == '__main__':
     
     parser = argparse.ArgumentParser()
-    parser.add_argument('--net', type=str, default='PatchTST_wyh', help='net type')
+    parser.add_argument('--net', type=str, default='PatchTST_wyh', help='net type  PatchTST_wyh, GTN')
     parser.add_argument('--gpu', type = int, default=1, help='use gpu or not')  # 选择是否使用 GPU（1 表示使用 GPU，0 表示使用 CPU）。
-    parser.add_argument('--b', type=int, default=256, help='batch size for dataloader')
+    parser.add_argument('--b', type=int, default=512, help='batch size for dataloader')
     parser.add_argument('--lr', type=float, default=0.0001, help='initial learning rate')
-    parser.add_argument('--epoch',type=int, default=50, help='total training epoches')
+    parser.add_argument('--epoch',type=int, default=100, help='total training epoches')
     parser.add_argument('--seed',type=int, default=10, help='seed')
-    parser.add_argument('--gamma',type=float, default=3.0, help='the gamma of focal loss')
+    parser.add_argument('--gamma',type=float, default=4.0, help='the gamma of focal loss')
     parser.add_argument('--beta',type=float, default=0.9999, help='the beta of class balanced loss')
-    parser.add_argument('--weight_d',type=float, default=0.1, help='weight decay for regularization')  # 权重衰减 系数 
+    parser.add_argument('--weight_d',type=float, default=0.001, help='weight decay for regularization')  # 权重衰减 系数 
     parser.add_argument('--save_path',type=str, default='setting0', help='saved path of each setting') #
     # parser.add_argument('--data_path',type=str, default='E:\\program\\aaa_DL_project\\0000PatchTST-TFC\\CMI-Net\\data\\new_goat_25hz_3axis.pt', help='saved path of input data')
-    parser.add_argument('--data_path',type=str, default='/data1/wangyonghua/0000PatchTST-TFC/CMI-Net/data/new_goat_25hz_3axis.pt', help='saved path of input data')
+    # parser.add_argument('--data_path',type=str, default='E:\\program\\aaa_DL_project\\0000PatchTST-TFC\\CMI-Net\\data\\00goat.pt', help='saved path of input data')
+    parser.add_argument('--data_path',type=str, default='./data/00goat.pt', help='saved path of input data')
+   
+    parser.add_argument('--loss_ratio', type=float, default=0.9, help='ratio of CB loss in total loss')
+  
+   
     args = parser.parse_args()
+    
+    model_configs = Configs()
 
     device = torch.device("cuda:0" if args.gpu > 0 and torch.cuda.is_available() else "cpu") # 条件运算符，如果 args.gpu > 0 并且 torch.cuda.is_available() 为 True，则使用 GPU，否则使用 CPU
 
@@ -262,6 +296,52 @@ if __name__ == '__main__':
     # print(f"Model is on device: {net.parameters().device}")
     print('Setting: Epoch: {}, Batch size: {}, Learning rate: {:.6f}, gpu:{}, seed:{}'.format(args.epoch, args.b, args.lr, args.gpu, args.seed))
 
+
+
+
+    #  # Load the encoder_t weights
+    # encoder_t_weights = torch.load("E:\\program\\aaa_DL_project\\0000PatchTST-TFC\\CMI-Net\\预训练权重\\encoder_t_weights.pt")
+    # # Filter out the classifier weights if present
+    # encoder_t_weights = {k: v for k, v in encoder_t_weights.items() if 'classifier' not in k}
+    # # Load the weights into the model
+    # model_dict = net.state_dict()
+    # model_dict.update(encoder_t_weights)
+    # net.load_state_dict(model_dict)
+    
+
+## 使用wandb 进行超参数搜索
+#    
+
+#     run = wandb.init(project="CMI-Net",settings=wandb.Settings(init_timeout=300),name="PatchTST_wyh",config={
+#         'batch_size': args.b,
+#         'learning_rate': args.lr,
+#         'epochs': args.epoch,
+#         'gamma': args.gamma,
+#         'beta': args.beta,
+#         'loss_ratio': args.loss_ratio,
+#         'model_d_model': model_configs.d_model,
+#         'model_patch_len': model_configs.patch_len,
+#         'model_stride': model_configs.stride,
+
+#     })
+
+#     sweep_config = {
+#         'method': 'random',
+#         'metric': {
+#             'name': 'valid_accuracy',
+#             'goal': 'maximize'
+#         },
+#         'parameters': {
+#             'gamma': {'values': [1.0, 2.0, 3.0]},   
+#             'beta': {'values': [0.999, 0.9999, 0.99999]},   
+#             'loss_ratio': {'values': [0.1, 0.5, 0.9]},
+#         }
+#     }
+
+#     sweep_id = wandb.sweep(sweep_config, project="CMI-Net", name="PatchTST_wyh")
+
+#   # 使用 wandb.agent 来运行 sweep
+#     wandb.agent(sweep_id, function=train)
 
 
 
@@ -293,7 +373,7 @@ if __name__ == '__main__':
     #     optimizer, 
     #     mode='min', 
     #     factor=0.1, 
-    #     patience=10, 
+    #     patience=10,  
     #     min_lr=min_lr, 
     #     # verbose=True #verbose=True 打印日志不够灵活，且与用户自定义的日志系统（如 logging 模块或第三方工具）难以兼容。
     # )
@@ -303,7 +383,7 @@ if __name__ == '__main__':
     mode='min', 
     factor=0.5,       # 学习率每次降低为当前值的50%（原为10%）
     patience=15,      # 等待15个epoch无改善再降低（原为10）
-    min_lr=1e-5,      # 最低学习率从1e-6提高到1e-5
+    min_lr=1e-6,      # 最低学习率从1e-6提高到1e-5
     # verbose=True       # 打印学习率更新日志
     )
 
@@ -359,7 +439,7 @@ if __name__ == '__main__':
     plt.xlim(0,args.epoch)
     plt.xlabel('n_iter',font_1)
     plt.ylabel('Accuracy',font_1)
-    
+    # log_plot_to_wandb(run,fig1, "Accuracy Curve")
     acc_figuresavedpath = os.path.join(checkpoint_path,'Accuracy_curve.png')
     plt.savefig(acc_figuresavedpath)
     # plt.show()
@@ -377,11 +457,11 @@ if __name__ == '__main__':
     plt.xlim(0,args.epoch)
     plt.xlabel('n_iter',font_1)
     plt.ylabel('Loss',font_1)
-
+    # log_plot_to_wandb(run,fig2, "Loss Curve")
     loss_figuresavedpath = os.path.join(checkpoint_path,'Loss_curve.png')
     plt.savefig(loss_figuresavedpath)
     # plt.show()
-    
+
     #plot f1 score varying over time
     fig3=plt.figure(figsize=(12,9))
     plt.title('F1-score',font_1)
@@ -393,10 +473,29 @@ if __name__ == '__main__':
     plt.xlim(0,args.epoch)
     plt.xlabel('n_iter',font_1)
     plt.ylabel('Loss',font_1)
-
-    fs_figuresavedpath = os.path.join(checkpoint_path,'F1-score.png')
+    # log_plot_to_wandb(run,fig3, "Loss Curve")
+    fs_figuresavedpath = os.path.join(checkpoint_path, 'F1-score.png')
     plt.savefig(fs_figuresavedpath)
     # plt.show()
+
+       #plot loss varying over time
+    fig4=plt.figure(figsize=(12,9))
+    plt.title('valid_Loss',font_1)
+    index_valid = list(range(1,len(Valid_Loss)+1))
+    plt.plot(index_valid,Valid_Loss,color='red', label='valid_loss')
+    plt.legend(fontsize=16)
+    plt.xticks(fontsize=12)
+    plt.yticks(fontsize=12)
+    plt.grid()
+    plt.xlim(0,args.epoch)
+    plt.xlabel('n_iter',font_1)
+    plt.ylabel('Loss',font_1)
+
+    # log_plot_to_wandb(run,fig4, "F1-score Curve")
+    loss_figuresavedpath = os.path.join(checkpoint_path,'valid_Loss_curve.png')
+    plt.savefig(loss_figuresavedpath)
+    # plt.show()
+
     
     out_txtsavedpath = os.path.join(checkpoint_path,'output.txt')
     f = open(out_txtsavedpath, 'w+')
@@ -413,8 +512,9 @@ if __name__ == '__main__':
     
     ######load the best trained model and test testing data  ，测试函数，推理
     best_net = get_network(args)
-    best_net.load_state_dict(torch.load(best_weights_path,weights_only=True))
-    
+    # best_net.load_state_dict(torch.load(best_weights_path,weights_only=True))
+    best_net.load_state_dict(torch.load(best_weights_path))
+
     total_num_paras, trainable_num_paras = get_parameter_number(best_net)
     print('The total number of network parameters = {}'.format(total_num_paras), file=f)
     print('The trainable number of network parameters = {}'.format(trainable_num_paras), file=f)
@@ -496,7 +596,7 @@ if __name__ == '__main__':
         def show_confusion_matrix(validations, predictions):
             matrix = confusion_matrix(validations, predictions) #No one-hot
             #matrix = confusion_matrix(validations.argmax(axis=1), predictions.argmax(axis=1)) #One-hot
-            plt.figure(figsize=(6, 4))
+            fig5=plt.figure(figsize=(6, 4))
             sns.heatmap(matrix,
                   cmap="coolwarm",
                   linecolor='white',
@@ -509,27 +609,68 @@ if __name__ == '__main__':
             plt.ylabel("True Label")
             plt.xlabel("Predicted Label")
             cm_figuresavedpath = os.path.join(checkpoint_path,'Confusion_matrix.png')
+            # log_plot_to_wandb(run,fig5, "F1-score Curve")
             plt.savefig(cm_figuresavedpath)
             # plt.show()
 
         show_confusion_matrix(test_target, test_predict)
 
-        # # 创建训练配置字典
-        # train_config = {
-        #     'best_accuracy': best_acc,
-        #     'best_epoch': best_epoch,
-        #     'final_metrics': {
-        #         'accuracy': float(accuracy_test),
-        #         'f1_score': float(fs_test),
-        #         'precision': float(precision_test),
-        #         'recall': float(recall_test),
-        #         'kappa': float(kappa_value)
-        #     }
-        # } 
-
-        #   # 保存模型配置
-        # save_model_config(best_net, args, train_config, checkpoint_path)
     
     if args.gpu:
         print('GPU INFO.....', file=f)
         print(torch.cuda.memory_summary(), end='', file=f)
+
+
+    hyperparameters_save_path = os.path.join(checkpoint_path, 'hyperparameters.yaml')
+    save_hyperparameters(args, model_configs, hyperparameters_save_path)
+
+    def plot_tsne(model, data_loader, device):
+        model.eval()
+        features = []
+        labels = []
+
+        with torch.no_grad():
+            for images, lbls in data_loader:
+                images = images.to(device)
+                lbls = lbls.to(device)
+                feats = model.extract_features(images)
+                features.append(feats.cpu().numpy())
+                labels.append(lbls.cpu().numpy())
+
+        features = np.concatenate(features, axis=0)
+        labels = np.concatenate(labels, axis=0)
+
+        tsne = TSNE(n_components=2, random_state=0)
+        tsne_results = tsne.fit_transform(features)
+
+        fig6=plt.figure(figsize=(10, 8))
+        unique_labels = np.unique(labels)
+        Class_labels = ['standing', 'running', 'grazing', 'trotting', 'walking']
+        
+        for label in unique_labels:
+            indices = labels == label
+            plt.scatter(tsne_results[indices, 0], tsne_results[indices, 1], label=Class_labels[label], alpha=0.7)
+
+        plt.colorbar()
+        plt.title('t-SNE of PatchTST Features')
+        plt.xlabel('t-SNE 1')
+        plt.ylabel('t-SNE 2')
+        plt.legend()  # 添加图例
+        # plt.show()
+        # log_plot_to_wandb(run,fig6, "t-SNE Plot")
+        cm_figuresavedpath = os.path.join(checkpoint_path, 't-SNE.png')
+        plt.savefig(cm_figuresavedpath)
+    
+    # Assuming valid_loader is your validation data loader
+    plot_tsne(net, valid_loader, device)
+
+    # run.log({"Train_Loss": Train_Loss   ,
+    # "Train_Accuracy": Train_Accuracy,
+    # "Valid_Loss": Valid_Loss,
+    # "Valid_Accuracy": Valid_Accuracy,
+    # "f1_s": f1_s,
+    # "test_target": test_target,
+    # "test_predict": test_predict,
+    # })
+
+    # run.finish()

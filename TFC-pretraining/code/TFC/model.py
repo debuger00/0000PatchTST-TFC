@@ -64,17 +64,17 @@ class TFC(nn.Module):
         
         # 保持原有的投影头
         self.projector_t = nn.Sequential(
-            nn.Linear(768, 512 ),  # 使用d_model作为输入维度
+            nn.Linear(1536, 512 ),  # 使用d_model作为输入维度
             nn.BatchNorm1d(512),
             nn.ReLU(),
-            nn.Linear(512, 128)
+            nn.Linear(512, 256)
         )
         
         self.projector_f = nn.Sequential(
-            nn.Linear(768, 512),  # 使用d_model作为输入维度
+            nn.Linear(1536, 512),  # 使用d_model作为输入维度
             nn.BatchNorm1d(512),
             nn.ReLU(),
-            nn.Linear(512, 128)
+            nn.Linear(512, 256)
         )
 
     def forward(self, x_in_t, x_in_f):
@@ -85,7 +85,8 @@ class TFC(nn.Module):
         # print(f"000时间域特征 h_time shape: {x_in_t.shape}")  # 应该是 [128, 3,50]
         h_time = self.encoder_t(x_in_t)  
         #输出 h_time shape: torch.Size([128, 1, 178])
-        
+        # print(f"001时间域特征 h_time shape: {h_time.shape}")
+
         h_time = h_time.flatten(1)  # [batch_size, feature_dim]  等价于 h_time = h_time.reshape(h_time.shape[0], -1)
         # print(f"001时间域特征 h_time shape: {h_time.shape}")  # 应该是 [128, 2816]
         """Cross-space projector"""

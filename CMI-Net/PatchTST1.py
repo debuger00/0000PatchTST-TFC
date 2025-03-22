@@ -37,7 +37,7 @@ class Configs:
         
         # 数据处理参数
         self.individual = False   # 是否独立处理每个特征
-        self.revin = False       # 是否使用RevIN    ###############################
+        self.revin = False        # 是否使用RevIN    ###############################
         self.affine = False       # RevIN是否使用affine变换  ###########################
         self.subtract_last = False  # 是否减去最后一个值
         

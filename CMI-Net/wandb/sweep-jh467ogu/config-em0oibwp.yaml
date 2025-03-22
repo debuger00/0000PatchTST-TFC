@@ -1,0 +1,8 @@
+wandb_version: 1
+
+beta:
+  value: 0.999
+gamma:
+  value: 3
+loss_ratio:
+  value: 0.9

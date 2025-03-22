@@ -16,7 +16,8 @@ MILESTONES = [0, 60, 80] # 学习率调整的里程碑
 #initial learning rate
 #INIT_LR = 0.1
 
-DATE_FORMAT = '%A_%d_%B_%Y_%Hh_%Mm_%Ss'
+# DATE_FORMAT = '%d_%B_%Y_%Hh_%Mm_%Ss'
+DATE_FORMAT = '%Y_%m_%d_%Hh_%Mm_%Ss'
 #time of we run the script
 TIME_NOW = datetime.now().strftime(DATE_FORMAT)
 

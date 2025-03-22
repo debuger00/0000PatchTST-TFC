@@ -8,11 +8,19 @@ from torch import Tensor
 import torch.nn.functional as F
 import numpy as np
 
+import os
+import sys
+
+script_path = os.path.dirname(os.path.abspath(__file__))
+sys.path.append(os.path.dirname(script_path))
+
+
 from models.layers.PatchTST_backbone import PatchTST_backbone
 from models.layers.PatchTST_layers import series_decomp
 
 # from layers.PatchTST_backbone import PatchTST_backbone
 # from layers.PatchTST_layers import series_decomp
+
 
 class Configs:
     def __init__(self):
@@ -24,7 +32,7 @@ class Configs:
         # 模型结构参数
         self.e_layers = 2        # encoder层数
         self.n_heads = 8         # 注意力头数
-        self.d_model = 128       # 模型维度
+        self.d_model = 16       # 模型维度
         self.d_ff = 256         # 前馈网络维度
         self.dropout = 0.2       # dropout率
         self.fc_dropout = 0.2    # 全连接层dropout率
@@ -54,7 +62,7 @@ class Configs:
         
         
         # 分类器特定参数
-        self.classifier_dropout = 0.2  # 分类器dropout率
+        self.classifier_dropout = 0.5  # 分类器dropout率
         self.use_weighted_loss = False # 是否使用加权损失（处理类别不平衡）
 
         # 1D卷积参数
@@ -157,16 +165,40 @@ class PatchTSTNet(nn.Module):
         # 修改分类头，增加特征提取能力
         self.classifier = nn.Sequential(
 
-            nn.Linear(feature_dim, feature_dim//2),
-            nn.ReLU(),
-            nn.Dropout(configs.classifier_dropout),
+            # nn.Linear(feature_dim, feature_dim//2),
+            # nn.ReLU(),
+            # nn.Dropout(configs.classifier_dropout),
             
-            # 最终分类层
-            nn.Linear(feature_dim//2, configs.num_classes)
+            # # 最终分类层
+            # nn.Linear(feature_dim//2, configs.num_classes)
+
+            nn.Linear(feature_dim, 512),
+            nn.GELU(),
+            nn.Dropout(configs.classifier_dropout),
+            nn.Linear(512, 256),
+            nn.GELU(),
+            nn.Linear(256, configs.num_classes)
         )
+
+    def extract_features(self, x):
+        x = x.squeeze(1)
+        if self.decomposition:
+            res_init, trend_init = self.decomp_module(x)
+            res_init, trend_init = res_init.permute(0,2,1), trend_init.permute(0,2,1)  
+            res = self.model_res(res_init)
+            trend = self.model_trend(trend_init)
+            x = res + trend
+            x = x.permute(0,2,1)
+        else:
+            # x = x.permute(0,2,1)
+            x = self.model(x)
+            x = x.permute(0,2,1)
+        
+        x = x.mean(dim=-1)
+        return x  # 返回特征
         
     
-    def forward(self, x, return_probs=True):           # x: [Batch, Input length, Channel]
+    def forward(self, x, return_probs=False):           # x: [Batch, Input length, Channel]
         # 1. 去掉第二维的1，转换为 [batch_size, 50, 3]
         x = x.squeeze(1)
        
@@ -178,7 +210,7 @@ class PatchTSTNet(nn.Module):
             x = res + trend
             x = x.permute(0,2,1)    # x: [Batch, Input length, Channel]
         else:
-            x = x.permute(0,2,1)    # x: [Batch, Channel, Input length]
+            # x = x.permute(0,2,1)    # x: [Batch, Channel, Input length]
             x = self.model(x)   # [Batch, conv_out_channels, num_patches]
             x = x.permute(0,2,1)
         
@@ -195,48 +227,41 @@ def PatchTST():
     configs = Configs()
     return PatchTSTNet(configs)
 
-def PatchTST():
+def test_model_with_weights(weights_path):
+    # Initialize the model
     configs = Configs()
-    return PatchTSTNet(configs)
+    model = PatchTSTNet(configs)
 
-# 使用示例
+    # Print initial model parameters for comparison
+    initial_params = {name: param.clone() for name, param in model.named_parameters()}
+
+    
+    # Load the encoder_t weights
+    encoder_t_weights = torch.load(weights_path)
+    
+    # Filter out the classifier weights if present
+    encoder_t_weights = {k: v for k, v in encoder_t_weights.items() if 'classifier' not in k}
+    
+    # Load the weights into the model
+    model_dict = model.state_dict()
+    model_dict.update(encoder_t_weights)
+    model.load_state_dict(model_dict)
+    
+    for name, param in model.named_parameters():
+        if name in encoder_t_weights:
+            if not torch.equal(param, initial_params[name]):
+                print(f"######################Parameter {name} successfully loaded.")
+            else:
+                print(f"######################Parameter {name} not changed.")
+
+    # Print the model to verify
+    print(model)
+
+# # 使用示例
 if __name__ == "__main__":
     configs = Configs()
     model = PatchTSTNet(configs)
-    
-    # 测试模型并打印每一步的形状
-    batch_size = 32
-    # 创建新的输入形状 [batch_size, 1, 50, 3]
-    x = torch.randn(batch_size, 1, configs.seq_len, configs.enc_in)
-    print(f"原始输入形状: {x.shape}")  # 预期: [32, 1, 50, 3]
-    
-    # 测试数据流经模型的形状变化
-    with torch.no_grad():
-        # 1. 去掉第二维的1，转换为 [batch_size, 50, 3]
-        x = x.squeeze(1)
-        print(f"去除维度1后形状: {x.shape}")  # 预期: [32, 50, 3]
-        
-        # 2. 转置为 [Batch, Channel, Length]
-        x_permuted = x.permute(0, 2, 1)
-        print(f"第一次转置后形状: {x_permuted.shape}")  # 预期: [32, 3, 50]
-        
-        # 3. 通过backbone
-        if not model.decomposition:
-            backbone_output = model.model(x_permuted)
-            print(f"Backbone输出形状: {backbone_output.shape}")
-            
-            # 4. 转置回 [Batch, Length, Channel]
-            output_permuted = backbone_output.permute(0, 2, 1)
-            print(f"第二次转置后形状: {output_permuted.shape}")
-            
-            # 5. 计算序列维度的平均值
-            x = output_permuted.mean(dim= -1)  # [Batch, Channel]
-            print(f"平均池化后形状: {x.shape}")
-            
-            # 6. 最终分类输出
-            final_output = model.classifier(x)
-            print(f"分类器输出形状: {final_output.shape}")  # 预期: [32, num_classes]
-            
-            # 7. 测试概率输出
-            probs = F.softmax(final_output, dim=-1)
-            print(f"概率输出形状: {probs.shape}")  # 预期: [32, num_classes]
+    print(model)
+    print("#"*150)
+    weights_path = "E:/program/aaa_DL_project/0000PatchTST-TFC/CMI-Net/预训练权重/encoder_t_weights.pt"
+    test_model_with_weights(weights_path)
