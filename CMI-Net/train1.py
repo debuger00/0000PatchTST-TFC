@@ -373,7 +373,7 @@ if __name__ == '__main__':
     #     optimizer, 
     #     mode='min', 
     #     factor=0.1, 
-    #     patience=10, 
+    #     patience=10,  
     #     min_lr=min_lr, 
     #     # verbose=True #verbose=True 打印日志不够灵活，且与用户自定义的日志系统（如 logging 模块或第三方工具）难以兼容。
     # )
