@@ -20,6 +20,67 @@ import csv
 import yaml
 from sklearn.metrics import classification_report, f1_score, cohen_kappa_score, precision_score, recall_score, \
     confusion_matrix, precision_recall_curve, average_precision_score, roc_curve, auc
+from sklearn.manifold import TSNE  # 添加TSNE导入
+from sklearn.neighbors import KNeighborsClassifier  # 添加KNN导入
+
+# 添加Lion优化器实现
+class Lion(optim.Optimizer):
+    """Lion optimizer - Energy-Efficient Adaptive Optimization.
+    
+    Paper: https://arxiv.org/abs/2302.06675
+    Better than Adam/AdamW for imbalanced datasets and converges faster.
+    
+    Args:
+        params: iterable of parameters to optimize
+        lr: learning rate (default: 1e-4)
+        betas: coefficients used for computing running averages (default: (0.9, 0.99))
+        weight_decay: weight decay coefficient (default: 0.0)
+    """
+    def __init__(self, params, lr=1e-4, betas=(0.9, 0.99), weight_decay=0.0):
+        if not 0.0 <= lr:
+            raise ValueError(f"Invalid learning rate: {lr}")
+        if not 0.0 <= betas[0] < 1.0:
+            raise ValueError(f"Invalid beta parameter at index 0: {betas[0]}")
+        if not 0.0 <= betas[1] < 1.0:
+            raise ValueError(f"Invalid beta parameter at index 1: {betas[1]}")
+        
+        defaults = dict(lr=lr, betas=betas, weight_decay=weight_decay)
+        super().__init__(params, defaults)
+        
+    @torch.no_grad()
+    def step(self, closure=None):
+        loss = None
+        if closure is not None:
+            with torch.enable_grad():
+                loss = closure()
+                
+        for group in self.param_groups:
+            for p in group['params']:
+                if p.grad is None:
+                    continue
+                
+                # Perform weight decay
+                if group['weight_decay'] != 0:
+                    p.data.mul_(1 - group['lr'] * group['weight_decay'])
+                
+                grad = p.grad
+                state = self.state[p]
+                
+                # State initialization
+                if len(state) == 0:
+                    state['exp_avg'] = torch.zeros_like(p)
+                
+                exp_avg = state['exp_avg']
+                beta1, beta2 = group['betas']
+                
+                # Update momentum
+                exp_avg.mul_(beta1).add_(grad, alpha=1 - beta1)
+                
+                # Update weights
+                update = exp_avg.sign()
+                p.data.add_(update, alpha=-group['lr'])
+                
+        return loss
 
 
 class CBLossConfig:
@@ -31,21 +92,18 @@ class CBLossConfig:
 
 
 class EarlyStopping:
-    def __init__(self, patience=7, min_delta=0, verbose=False, monitor='val_loss'):
+    def __init__(self, patience=7, min_delta=0, verbose=False, monitor='f1'):
         self.patience = patience
         self.min_delta = min_delta
         self.verbose = verbose
         self.counter = 0
         self.best_score = None
         self.early_stop = False
-        self.monitor = monitor  # 'val_loss' 或 'val_acc'
+        self.monitor = monitor  # 'f1' for F1 score
 
     def __call__(self, score):
-        # 对于损失，越小越好；对于准确率，越大越好
-        if self.monitor == 'val_loss':
-            score_improved = self.best_score is None or score < self.best_score - self.min_delta
-        else:  # 'val_acc'
-            score_improved = self.best_score is None or score > self.best_score + self.min_delta
+        # For F1 score, higher is better
+        score_improved = self.best_score is None or score > self.best_score + self.min_delta
         
         if self.best_score is None:
             self.best_score = score
@@ -60,59 +118,39 @@ class EarlyStopping:
             self.counter = 0
 
 
-def train(train_loader, network, optimizer, epoch, loss_function, samples_per_cls, device):
-    start = time.time()
-    network.train()
+def train(net, train_loader, valid_loader, criterion, optimizer, scheduler, args, device, samples_per_cls):
+    net.train()
+    total_loss = 0
     total_correct = 0
     total_samples = 0
-    total_loss = 0.0
-
-    for batch_index, (images, labels) in enumerate(train_loader):
-        images, labels = images.to(device, non_blocking=True), labels.to(device, non_blocking=True)
+    
+    for batch_idx, (inputs, targets) in enumerate(train_loader):
+        inputs, targets = inputs.to(device), targets.to(device)
         optimizer.zero_grad()
-
-        try:
-            outputs = network(images)
-            loss_type = "focal"
-
-            # 计算类别平衡损失(Class Balanced Loss)
-            loss_cb = CB_loss(labels, outputs, samples_per_cls, 5, loss_type, args.beta, args.gamma)
-
-                # 计算交叉熵损失
-            loss_ce = loss_function(outputs, labels)
-            # 组合损失(这里CB loss的权重为0，实际上只使用了CE loss)
-            # loss = 1.0 * loss_ce + 0.0 * loss_cb
-            loss = 0.25*loss_ce + 0.75*loss_cb # class-balanced focal loss (CMI-Net+CB focal loss)
- 
-            if args.weight_d > 0:
-                loss += reg_loss(network)
-
-            loss.backward()
-
-
-        except RuntimeError as e:
-            print(f"Warning: {str(e)}")
-            optimizer.zero_grad()
-            continue
-
-        _, preds = outputs.max(1)
-        total_correct += preds.eq(labels).sum().item()
-        total_samples += len(labels)
+        outputs = net(inputs)
+        loss = criterion(outputs, targets)
+        loss.backward()
+        
+        if args.max_grad_norm > 0:
+            torch.nn.utils.clip_grad_norm_(net.parameters(), args.max_grad_norm)
+            
+        optimizer.step()
+        
         total_loss += loss.item()
-
-    # 计算整个epoch的平均准确率和损失
-    epoch_accuracy = total_correct / total_samples  # 保持为小数形式
+        _, predicted = outputs.max(1)
+        total_correct += predicted.eq(targets).sum().item()
+        total_samples += targets.size(0)
+        
+        # 
+        if batch_idx % 500 == 0 and batch_idx > 0:
+            print(f'Epoch 进度: Batch: {batch_idx}/{len(train_loader)}, Loss: {loss.item():.4f}')
+    
+    # 计算训练指标
     epoch_loss = total_loss / len(train_loader)
-
-    print('Training Epoch: {epoch} [{total}/{total}]\tTrain_accuracy: {:.4f}\tLoss: {:0.4f}\tLR: {:0.6f}'.format(
-        epoch_accuracy,
-        epoch_loss,
-        optimizer.param_groups[0]['lr'],
-        epoch=epoch,
-        total=len(train_loader.dataset)
-    ))
-
-    return network, epoch_accuracy, epoch_loss
+    epoch_accuracy = total_correct / total_samples if total_samples > 0 else 0
+    
+    # 返回训练准确率和损失
+    return net, epoch_accuracy, epoch_loss
 
 
 @torch.no_grad()
@@ -133,9 +171,9 @@ def eval_training(valid_loader, net, samples_per_cls, cb_config, device, epoch=0
 
         # 使用与训练相同的损失函数
         if args.use_mixed_loss == 1:
-            loss = mixed_loss(
+            loss = cb_ce_mixed_loss(
                 labels, outputs, samples_per_cls, args.num_classes, 
-                'focal', args.beta, args.gamma, args.dice_weight
+                'focal', args.beta, args.gamma, args.ce_weight
             )
         else:
             loss = CB_loss(
@@ -182,10 +220,10 @@ def eval_training(valid_loader, net, samples_per_cls, cb_config, device, epoch=0
     for i in range(n_classes):
         row = [str(x) for x in matrix[i]]
         print(f'{i}\t' + '\t'.join(row))
-    print()  # 添加空行以提高可读性
+    print()  
 
     accuracy = correct.float() / len(valid_loader.dataset)
-    avg_loss = valid_loss / len(valid_loader.dataset)
+    avg_loss = valid_loss / n
     f1 = f1_score(class_target, class_predict, average='macro', zero_division=0)
 
     # 确保返回的是CPU张量
@@ -199,72 +237,24 @@ def get_parameter_number(net):
 
 
 def save_model_config(model, args, train_config, save_path):
-    """保存模型配置到YAML文件"""
     config = {
         'model_name': args.net,
-        'model_architecture': {
-            'layers': [],
-            'total_parameters': 0,
-            'trainable_parameters': 0
-        },
-        'training_config': {
-            'batch_size': args.b,
-            'learning_rate': args.lr,
-            'epochs': args.epoch,
-            'seed': args.seed,
-            'weight_decay': args.weight_d,
-            'beta': args.beta,
-            'gamma': args.gamma,
-            'gpu': bool(args.gpu),
-            'optimizer': 'AdamW',
-            'loss_function': 'Mixed Loss (CB_loss + Dice)' if args.use_mixed_loss == 1 else 'CB_loss with focal',
-            'dice_weight': args.dice_weight if args.use_mixed_loss == 1 else 0,
-            'scheduler': 'LambdaLR with warmup and cosine decay'
-        },
-        'performance_metrics': {
-            'best_accuracy': 0,
-            'best_epoch': 0,
-            'final_metrics': {
-                'accuracy': 0,
-                'f1_score': 0,
-                'precision': 0,
-                'recall': 0,
-                'kappa': 0
-            }
-        }
+        'input_size': train_config['input_size'],
+        'num_classes': args.num_classes,
+        'batch_size': args.b,
+        'learning_rate': args.lr,
+        'epochs': args.epoch,
+        'optimizer': args.optimizer,
+        'loss_function': 'CB-CE Mixed Loss' if args.use_mixed_loss == 1 else 'CB Loss with focal',
+        'ce_weight': args.ce_weight if args.use_mixed_loss == 1 else 0,
+        'beta': args.beta,
+        'gamma': args.gamma,
+        'weight_decay': args.weight_d,
+        'regularization_type': args.reg_type,
+        'device': str(args.device),
+        'model_architecture': str(model)
     }
-
-    # 记录模型层结构
-    for name, module in model.named_children():
-        layer_info = {
-            'name': name,
-            'type': module.__class__.__name__,
-            'parameters': sum(p.numel() for p in module.parameters())
-        }
-
-        # 对于特定类型的层，添加更多详细信息
-        if isinstance(module, nn.Linear):
-            layer_info.update({
-                'in_features': module.in_features,
-                'out_features': module.out_features,
-                'bias': module.bias is not None
-            })
-        elif isinstance(module, nn.Conv2d):
-            layer_info.update({
-                'in_channels': module.in_channels,
-                'out_channels': module.out_channels,
-                'kernel_size': module.kernel_size,
-                'stride': module.stride,
-                'padding': module.padding
-            })
-
-        config['model_architecture']['layers'].append(layer_info)
-
-    # 记录参数总量
-    total_params, trainable_params = get_parameter_number(model)
-    config['model_architecture']['total_parameters'] = total_params
-    config['model_architecture']['trainable_parameters'] = trainable_params
-
+    
     # 保存配置到YAML文件
     config_path = os.path.join(save_path, 'model_config.yaml')
     with open(config_path, 'w') as f:
@@ -272,43 +262,9 @@ def save_model_config(model, args, train_config, save_path):
 
 
 # 添加混合损失函数
-def dice_loss(labels_one_hot, logits, smooth=1.0, weights=None):
+def cb_ce_mixed_loss(labels, logits, samples_per_cls, no_of_classes, loss_type, beta, gamma, ce_weight=0.3):
     """
-    计算Dice Loss，特别适合处理类别不平衡问题。
-    
-    Dice系数衡量两个集合的相似度，Dice Loss = 1 - Dice系数，公式为:
-    DL = 1 - (2*|X∩Y| + smooth) / (|X|+|Y| + smooth)
-    其中X是预测结果，Y是真实标签。
-    
-    参数:
-        labels_one_hot (torch.Tensor): 形状为[batch, no_of_classes]的one-hot编码标签。
-        logits (torch.Tensor): 形状为[batch, no_of_classes]的模型原始输出分数。
-        smooth (float): 平滑系数，防止分母为0。
-        weights (torch.Tensor, optional): 各类别权重，形状为[no_of_classes]。
-        
-    返回:
-        torch.Tensor: 标量张量，表示计算得到的Dice Loss值。
-    """
-    # 将logits转换为概率
-    probs = torch.softmax(logits, dim=1)
-    
-    # 计算每个类别的Dice系数
-    numerator = 2.0 * torch.sum(probs * labels_one_hot, dim=0) + smooth
-    denominator = torch.sum(probs, dim=0) + torch.sum(labels_one_hot, dim=0) + smooth
-    dice_coef = numerator / denominator
-    
-    # 若指定权重，则应用权重
-    if weights is not None:
-        dice_coef = dice_coef * weights
-        dice_loss = 1.0 - torch.sum(dice_coef) / torch.sum(weights)
-    else:
-        dice_loss = 1.0 - torch.mean(dice_coef)
-    
-    return dice_loss
-
-def mixed_loss(labels, logits, samples_per_cls, no_of_classes, loss_type, beta, gamma, dice_weight=0.3):
-    """
-    结合CB Loss和Dice Loss的混合损失函数，增强对少数类的学习。
+    结合CB Loss和CE Loss的混合损失函数。
     
     参数:
         labels (torch.Tensor): 形状为[batch]的整数张量，包含每个样本的类别标签。
@@ -316,9 +272,9 @@ def mixed_loss(labels, logits, samples_per_cls, no_of_classes, loss_type, beta, 
         samples_per_cls (list/torch.Tensor): 大小为[no_of_classes]的列表，包含每个类别的样本总数。
         no_of_classes (int): 类别总数。
         loss_type (str): CB Loss使用的基础损失函数类型，可选"sigmoid"、"focal"或"softmax"。
-        beta (float): 类别平衡的超参数，用于计算有效样本数，通常接近1。
+        beta (float): 类别平衡的超参数，用于计算有效样本数。
         gamma (float): Focal Loss的聚焦参数，仅在loss_type="focal"时使用。
-        dice_weight (float): Dice Loss在混合损失中的权重，范围[0,1]，默认0.3。
+        ce_weight (float): CE Loss在混合损失中的权重，范围[0,1]，默认0.3。
         
     返回:
         torch.Tensor: 标量张量，表示计算得到的混合损失值。
@@ -328,64 +284,58 @@ def mixed_loss(labels, logits, samples_per_cls, no_of_classes, loss_type, beta, 
     # 计算CB Loss
     cb_loss_val = CB_loss(labels, logits, samples_per_cls, no_of_classes, loss_type, beta, gamma)
     
-    # 转换为one-hot编码
-    labels_one_hot = F.one_hot(labels, no_of_classes).float().to(device)
-    
-    # 计算类别权重，确保样本数越少的类别权重越大
-    if not isinstance(samples_per_cls, torch.Tensor):
-        samples_per_cls = torch.tensor(samples_per_cls, dtype=torch.float)
-    samples_per_cls = samples_per_cls.to(device)
-    
-    # 使用倒数作为权重，样本越少权重越大
-    dice_cls_weights = 1.0 / (samples_per_cls + 1.0)  # 添加1防止除零
-    dice_cls_weights = dice_cls_weights / dice_cls_weights.sum() * no_of_classes
-    
-    # 计算Dice Loss
-    dice_loss_val = dice_loss(labels_one_hot, logits, weights=dice_cls_weights)
+    # 计算CE Loss
+    ce_loss_val = F.cross_entropy(logits, labels)
     
     # 组合两种损失
-    total_loss = (1.0 - dice_weight) * cb_loss_val + dice_weight * dice_loss_val
+    total_loss = (1.0 - ce_weight) * cb_loss_val + ce_weight * ce_loss_val
     
     return total_loss
+
 
 
 if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('--net', type=str, default='PatchTST', help='net type')
+    parser.add_argument('--net', type=str, default='PatchTST_Classification', help='net type')
     parser.add_argument('--gpu', type=int, default=1, help='use gpu or not')  # 选择是否使用 GPU（1 表示使用 GPU，0 表示使用 CPU）。
-    parser.add_argument('--b', type=int, default=128, help='batch size for dataloader')
-    parser.add_argument('--lr', type=float, default=0.0001, help='initial learning rate')
-    parser.add_argument('--epoch', type=int, default=100, help='total training epoches')
+    parser.add_argument('--b', type=int, default=256, help='batch size for dataloader')
+    parser.add_argument('--lr', type=float, default=0.00001, help='initial learning rate')
+    parser.add_argument('--epoch', type=int, default=150, help='total training epoches')
     parser.add_argument('--seed', type=int, default=42, help='seed')
-    parser.add_argument('--gamma', type=float, default=1.0, help='the gamma of focal loss')
+    parser.add_argument('--gamma', type=float, default=0.5, help='the gamma of focal loss')
     parser.add_argument('--beta', type=float, default=0.99, help='the beta of class balanced loss')
-    parser.add_argument('--weight_d', type=float, default=0.01, help='weight decay for regularization')
+    parser.add_argument('--weight_d', type=float, default=0.001, help='weight decay for regularization')
+    parser.add_argument('--reg_type', type=str, default='L2', choices=['L1', 'L2', 'none'], help='regularization type: L1, L2 or none')
     parser.add_argument('--save_path', type=str, default='experiments/default_run',
-                        help='path for saving all outputs (checkpoints, logs, etc)')
-    # parser.add_argument('--data_path', type=str,
-    #                     default='C:\\Users\\10025\\Desktop\\0000PatchTST-TFC-main\\0000PatchTST-TFC-main\\CMI-Net\\data\\new_goat_25hz_3axis.pt',
-    #                     help='saved path of input data')
+                        help='path for saving all outputs (checkpoints, logs, etc)') 
     parser.add_argument('--data_path', type=str,
-                        default='/data1/wangyonghua/0000PatchTST-TFC/CMI-Net/data/new_goat_25hz_3axis.pt',
+                        default='C:\\Users\\10025\\Desktop\\GIT_TST _test\\0000PatchTST-TFC\\CMI-Net\\data\\new_goat_25hz_3axis.pt', 
                         help='saved path of input data')
-    parser.add_argument('--patience', type=int, default=20, help='patience for early stopping')
+    parser.add_argument('--patience', type=int, default=25, help='patience for early stopping')
     parser.add_argument('--num_classes', type=int, default=5, help='number of classes in the dataset')
     parser.add_argument('--max_grad_norm', type=float, default=1.0, help='maximum gradient norm for gradient clipping')
     parser.add_argument('--num_workers', type=int, default=8 if platform.system() != "Windows" else 0,
                         help='number of workers for data loading')
-    parser.add_argument('--lr_decay', type=str, default='cosine',
-                        help='learning rate decay type: cosine/step/linear/cyclic (default: cosine)')
+    parser.add_argument('--lr_decay', type=str, default='cyclic',
+                        choices=['cosine', 'step', 'cyclic', 'onecycle', 'plateau'],
+                        help='learning rate decay type: cosine/step/cyclic/onecycle/plateau (default: cosine)')
+    parser.add_argument('--optimizer', type=str, default='adamw',
+                        choices=['adamw', 'adam', 'sgd', 'lion'],
+                        help='optimizer to use: adamw/adam/sgd/lion (default: adamw)')
     parser.add_argument('--warmup_epochs', type=int, default=5, help='number of warmup epochs')
     parser.add_argument('--min_lr', type=float, default=1e-6, help='minimum learning rate')
     parser.add_argument('--cycle_epochs', type=int, default=10, help='number of epochs per cycle for cyclic lr')
-    parser.add_argument('--device', type=str, default='cuda:0' if torch.cuda.is_available() else 'cpu',
-                        help='device to use')
-    parser.add_argument('--use_mixed_loss', type=int, default=0, help='whether to use mixed loss (CB Loss + Dice Loss): 0 for CB Loss only, 1 for mixed loss')
-    parser.add_argument('--dice_weight', type=float, default=0.3, help='weight of Dice Loss in mixed loss')
+    parser.add_argument('--device', type=str, default='cuda:0' if torch.cuda.is_available() else 'cpu',help='device to use')
+    parser.add_argument('--use_mixed_loss', type=int, default=1, help='loss type: 0 for CB Loss only, 1 for CB-CE mixed loss')
+    parser.add_argument('--ce_weight', type=float, default=0.2, help='weight of CE Loss in CB-CE mixed loss')
     parser.add_argument('--weight_smooth', type=int, default=1, help='whether to apply weight smoothing: 0 for no smoothing, 1 for log smoothing')
-    parser.add_argument('--class_balanced_sampling', type=int, default=0, help='whether to use class balanced sampling: 0 for no, 1 for yes')
     parser.add_argument('--focal_alpha', type=float, default=None, help='alpha parameter for focal loss, if None, use class weights')
+    # T-SNE可视化相关参数
+    parser.add_argument('--tsne_perplexity', type=float, default=30.0, help='T-SNE困惑度参数，影响局部结构保留程度')
+    parser.add_argument('--tsne_n_iter', type=int, default=1000, help='T-SNE迭代次数，影响结果质量和运行时间')
+    parser.add_argument('--tsne_learning_rate', type=float, default=200.0, help='T-SNE学习率，影响收敛速度')
+    parser.add_argument('--visualize_features', type=int, default=0, help='是否进行特征可视化: 0为否，1为是')
 
     args = parser.parse_args()
 
@@ -402,6 +352,10 @@ if __name__ == '__main__':
                     progress = (epoch - args.warmup_epochs) / (args.epoch - args.warmup_epochs)
                     cosine_decay = 0.5 * (1 + np.cos(np.pi * progress))
                     return max(cosine_decay, args.min_lr / args.lr)
+            
+            scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lr_lambda)
+            print(f"使用余弦学习率调整，预热轮数: {args.warmup_epochs} epochs")
+            
         elif args.lr_decay == 'step':
             def lr_lambda(epoch):
                 if epoch < args.warmup_epochs:
@@ -409,6 +363,10 @@ if __name__ == '__main__':
                 else:
                     # 每30个epoch衰减为原来的0.1
                     return 0.1 ** (epoch // 30)
+                    
+            scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lr_lambda)
+            print(f"使用阶梯式学习率调整，预热轮数: {args.warmup_epochs} epochs")
+            
         elif args.lr_decay == 'cyclic':
             def lr_lambda(epoch):
                 # 计算当前周期内的位置
@@ -423,9 +381,38 @@ if __name__ == '__main__':
                 else:
                     # 后半部分：从2.0到1.0线性减少
                     return 2.0 - 2.0 * (relative_position - 0.5)
+            
+            scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lr_lambda)
+            print(f"使用周期性学习率调整，周期长度: {args.cycle_epochs} epochs")
+            
+        elif args.lr_decay == 'onecycle':
+            # OneCycleLR - 高效防止过拟合，特别适合不平衡数据集
+            scheduler = torch.optim.lr_scheduler.OneCycleLR(
+                optimizer,
+                max_lr=args.lr * 10,  # 最大学习率为初始学习率的10倍
+                total_steps=args.epoch,
+                pct_start=0.3,  # 上升阶段占总步数的30%
+                anneal_strategy='cos',  # 使用余弦衰减
+                div_factor=25.0,  # 初始学习率 = max_lr / div_factor
+                final_div_factor=10000.0,  # 最终学习率 = max_lr / final_div_factor
+                three_phase=False  # 使用两阶段策略
+            )
+            print(f"使用OneCycle学习率调整，总轮数: {args.epoch}，最大学习率: {args.lr * 10}")
+            
+        elif args.lr_decay == 'plateau':
+            # 自适应调整学习率 - 验证损失停滞时降低学习率
+            scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+                optimizer, 
+                mode='max',  # 因为我们监控验证准确率
+                factor=0.5,  # 学习率衰减因子
+                patience=5,   # 等待多少个epoch
+                verbose=True,
+                threshold=1e-4,
+                min_lr=args.min_lr
+            )
+            print(f"使用ReduceLROnPlateau学习率调整，监控指标: 验证准确率")
+            return scheduler  # 特殊情况，需要在epoch结束时传入验证集性能指标
         
-        scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lr_lambda)
-        print(f"使用周期性学习率调整，周期长度: {args.cycle_epochs} epochs")
         return scheduler
 
     # 修改保存路径逻辑
@@ -559,21 +546,55 @@ if __name__ == '__main__':
     if isinstance(number_train, torch.Tensor):
         number_train = number_train.to(device)
 
-    if args.weight_d > 0:
-        reg_loss = Regularization(net, args.weight_d, p=2)
+    # 根据参数选择正则化类型
+    if args.weight_d > 0 and args.reg_type != 'none':
+        if args.reg_type == 'L1':
+            reg_loss = Regularization(net, args.weight_d, p=1)
+            print(f"使用 L1 正则化，权重衰减值: {args.weight_d}")
+        else:  # L2
+            reg_loss = Regularization(net, args.weight_d, p=2)
+            print(f"使用 L2 正则化，权重衰减值: {args.weight_d}")
     else:
-        print("no regularization")
+        print("不使用显式正则化")
+        reg_loss = None
 
-    # 修改优化器参数
-    optimizer = optim.AdamW(net.parameters(), lr=args.lr, weight_decay=args.weight_d)
+    # 修改优化器参数 - 根据正则化类型设置weight_decay
+    if args.reg_type == 'none':
+        # 如果不使用显式正则化，仍然可以使用优化器内置的权重衰减
+        optimizer_weight_decay = args.weight_d
+    else:
+        # 如果使用显式正则化，避免重复正则化，将优化器的权重衰减设为0
+        optimizer_weight_decay = 0
+    
+    # 根据参数选择优化器
+    if args.optimizer == 'adamw':
+        optimizer = optim.AdamW(net.parameters(), lr=args.lr, weight_decay=optimizer_weight_decay)
+        print(f"使用AdamW优化器，学习率: {args.lr}, 权重衰减: {optimizer_weight_decay}")
+    elif args.optimizer == 'adam':
+        optimizer = optim.Adam(net.parameters(), lr=args.lr, weight_decay=optimizer_weight_decay)
+        print(f"使用Adam优化器，学习率: {args.lr}, 权重衰减: {optimizer_weight_decay}")
+    elif args.optimizer == 'sgd':
+        optimizer = optim.SGD(net.parameters(), lr=args.lr, momentum=0.9, weight_decay=optimizer_weight_decay)
+        print(f"使用SGD优化器，学习率: {args.lr}, 动量: 0.9, 权重衰减: {optimizer_weight_decay}")
+    elif args.optimizer == 'lion':
+        optimizer = Lion(net.parameters(), lr=args.lr, weight_decay=optimizer_weight_decay)
+        print(f"使用Lion优化器，学习率: {args.lr}, 权重衰减: {optimizer_weight_decay}")
+    else:
+        # 默认使用AdamW
+        optimizer = optim.AdamW(net.parameters(), lr=args.lr, weight_decay=optimizer_weight_decay)
+        print(f"使用AdamW优化器，学习率: {args.lr}, 权重衰减: {optimizer_weight_decay}")
+        
+    if optimizer_weight_decay > 0:
+        print(f"优化器使用内置权重衰减: {optimizer_weight_decay}")
+        
     train_scheduler = get_lr_scheduler(optimizer, args)
 
-    # 修改早停策略 - 基于验证准确率
+    # 修改早停策略 - 基于F1分数
     early_stopping = EarlyStopping(
         patience=args.patience,
         min_delta=0.001,
         verbose=True,
-        monitor='val_acc'  # 明确指定监控验证准确率
+        monitor='f1'  # 明确指定监控F1分数
     )
 
     # 获取类别计数
@@ -630,12 +651,12 @@ if __name__ == '__main__':
     
     # 根据参数选择使用混合损失还是CB Loss
     if args.use_mixed_loss == 1:
-        print(f"\n使用混合损失函数 (CB Loss + Dice Loss)")
-        print(f"Dice Loss权重: {args.dice_weight}")
-        # 创建混合损失函数
-        criterion = lambda outputs, labels: mixed_loss(
+        print(f"\n使用混合损失函数 (CB Loss + CE Loss)")
+        print(f"CE Loss权重: {args.ce_weight}")
+        # 创建CB-CE混合损失函数
+        criterion = lambda outputs, labels: cb_ce_mixed_loss(
             labels, outputs, samples_per_cls, args.num_classes, 
-            'focal', args.beta, args.gamma, args.dice_weight
+            'focal', args.beta, args.gamma, args.ce_weight
         )
     else:
         print(f"\n使用CB Loss ({cb_config.loss_type})")
@@ -646,54 +667,14 @@ if __name__ == '__main__':
             cb_config.loss_type, args.beta, args.gamma
         )
 
-    # 添加类别平衡采样器
-    if args.class_balanced_sampling == 1:
-        print("\n使用类别平衡采样...")
-        # 获取训练集中每个样本的类别
-        train_labels = []
-        # 创建临时数据加载器来获取所有标签
-        temp_loader = torch.utils.data.DataLoader(
-            train_loader.dataset, 
-            batch_size=1000, 
-            shuffle=False, 
-            num_workers=args.num_workers
-        )
-        for _, labels in temp_loader:
-            train_labels.append(labels)
-        train_labels = torch.cat(train_labels)
-        
-        # 计算每个类别的权重
-        class_sample_count = torch.bincount(train_labels)
-        weight = 1. / class_sample_count.float()
-        
-        # 为每个样本分配权重
-        samples_weight = weight[train_labels]
-        
-        # 创建WeightedRandomSampler
-        sampler = torch.utils.data.WeightedRandomSampler(
-            weights=samples_weight,
-            num_samples=len(train_labels),
-            replacement=True
-        )
-        
-        # 使用采样器创建数据加载器
-        train_loader = torch.utils.data.DataLoader(
-            train_loader.dataset,
-            batch_size=args.b,
-            sampler=sampler,
-            num_workers=args.num_workers,
-            pin_memory=True
-        )
-        print("已启用类别平衡采样")
-    else:
-        # 使用普通数据加载器
-        train_loader = torch.utils.data.DataLoader(
-            train_loader.dataset,
-            batch_size=args.b,
-            shuffle=True,
-            num_workers=args.num_workers,
-            pin_memory=True
-        )
+    # 使用普通数据加载器
+    train_loader = torch.utils.data.DataLoader(
+        train_loader.dataset,
+        batch_size=args.b,
+        shuffle=True,
+        num_workers=args.num_workers,
+        pin_memory=True
+    )
 
     # 初始化记录列表
     Train_Accuracy = []
@@ -708,44 +689,32 @@ if __name__ == '__main__':
     # 定义最佳模型保存路径
     best_weights_path = os.path.join(checkpoints_dir, f'{args.net}-best.pth')
 
-    # 开始正式训练循环...
+    print("=" * 50)
+    print(f"[损失函数配置] Beta: {args.beta}, Gamma: {args.gamma}")
+    if args.use_mixed_loss == 1:
+        print(f"使用混合损失函数，CE Loss权重: {args.ce_weight}")
+    print("=" * 50)
+    
+    # 开始训练循环
     for epoch in range(1, args.epoch + 1):
-        # 训练并获取指标
-        net.train()
-        running_loss = 0.0
-        correct = 0
-        total = 0
+        # 添加分隔符使输出更清晰
+        print(f"开始训练第 {epoch}/{args.epoch} 轮")
+        print("="*70)
+        
+        # 训练模型 - 不再在train函数中进行验证
+        net, train_acc, train_loss = train(
+            net,
+            train_loader,
+            None,  # 不传入验证集
+            criterion,
+            optimizer,
+            train_scheduler,
+            args,
+            device,
+            samples_per_cls
+        )
 
-        for batch_index, (images, labels) in enumerate(train_loader):
-            images, labels = images.to(device, non_blocking=True), labels.to(device, non_blocking=True)
-
-            optimizer.zero_grad()
-            outputs = net(images)
-            loss = criterion(outputs, labels)
-
-            if args.weight_d > 0:
-                loss += reg_loss(net)
-
-            loss.backward()
-            # 添加梯度裁剪
-            torch.nn.utils.clip_grad_norm_(net.parameters(), args.max_grad_norm)
-            optimizer.step()
-
-            running_loss += loss.item()
-            _, predicted = torch.max(outputs.data, 1)
-            total += labels.size(0)
-            correct += (predicted == labels).sum().item()
-
-            if batch_index % 100 == 99:
-                print(
-                    f'[Epoch {epoch}, Batch {batch_index + 1}] Loss: {running_loss / 100:.4f}, Accuracy: {100 * correct / total:.2f}%')
-                running_loss = 0.0
-
-        # 计算训练指标
-        train_acc = correct / total
-        train_loss = running_loss / len(train_loader)
-
-        # 验证并获取指标
+        # 在主循环中进行验证
         valid_acc, valid_loss, fs_valid, class_predict = eval_training(
             valid_loader,
             net,
@@ -757,8 +726,8 @@ if __name__ == '__main__':
         
         # 在验证函数中添加模型预测分布监控
         if epoch % 5 == 0 or epoch == args.epoch - 1:  # 每5个epoch或最后一个epoch检查一次
-            # 将整数列表转换为张量
-            all_preds = torch.tensor(class_predict)
+            # 收集所有预测 - 将整数列表转换为张量
+            all_preds = torch.tensor(class_predict, device=device)
             
             # 统计每个类别的预测数量
             pred_counts = torch.bincount(all_preds, minlength=args.num_classes)
@@ -773,10 +742,6 @@ if __name__ == '__main__':
             min_percentage = 0.05 * 100 / args.num_classes  # 期望每个类别至少有总预测的5%/类别数
             collapsed_classes = [i for i in range(args.num_classes) if (pred_counts[i] / len(all_preds) * 100) < min_percentage]
             
-            if collapsed_classes:
-                print("警告: 模型对某些类别的预测数量过少，可能出现类别崩塌问题。")
-                print("建议: 1) 降低gamma值; 2) 降低beta值; 3) 尝试使用混合损失函数。")
-
         # 记录所有指标
         Train_Accuracy.append(float(train_acc))
         Train_Loss.append(float(train_loss))
@@ -785,7 +750,12 @@ if __name__ == '__main__':
         f1_s.append(float(fs_valid))
         
         # 在每个epoch结束后更新学习率
-        train_scheduler.step()
+        if args.lr_decay == 'plateau':
+            # ReduceLROnPlateau需要监控指标
+            train_scheduler.step(valid_acc)
+        else:
+            # 其他调度器只需要step()
+            train_scheduler.step()
 
         # 打印当前epoch的训练情况
         print(
@@ -794,29 +764,163 @@ if __name__ == '__main__':
             ))
 
         # 保存最佳模型
-        if valid_acc > best_val_acc:
-            best_val_acc = valid_acc
+        if fs_valid > best_val_acc:
+            best_val_acc = fs_valid
             best_epoch = epoch
             torch.save(net.state_dict(), best_weights_path)
+            print(f"模型保存成功! 当前最佳验证集F1分数: {best_val_acc:.4f}")
 
-        # 早停检查 - 基于验证准确率
-        early_stopping(valid_acc)  # 传入验证准确率
+        # 早停检查 - 基于F1分数
+        early_stopping(fs_valid)  # 传入F1分数
         if early_stopping.early_stop:
-            print(f'Early stopping triggered after {epoch} epochs - Best validation accuracy: {best_val_acc:.4f}')
+            print(f'早停在第 {epoch} 轮触发 - 最佳F1分数: {best_val_acc:.4f}')
             break
+
+        # 添加分隔符表示轮次结束
+        print("-"*70)
 
     # 评估测试集
     net.eval()
     test_target = []
     test_predict = []
+    test_features = []  # 用于存储特征向量
     with torch.no_grad():
         for images, labels in test_loader:
             images, labels = images.to(device), labels.to(device)
-            outputs = net(images)
+            
+            # 获取特征向量和预测
+            # 使用我们之前添加的get_features方法
+            if hasattr(net, 'get_features'):
+                features, outputs = net.get_features(images)
+                test_features.append(features.cpu().numpy())
+            else:
+                outputs = net(images)
+                # 如果没有get_features方法，我们不收集特征向量
+            
             _, predicted = outputs.max(1)
             test_target.extend(labels.cpu().numpy())
             test_predict.extend(predicted.cpu().numpy())
-
+    
+    # 如果没有收集到特征向量，跳过可视化部分
+    if len(test_features) == 0:
+        print("\n警告: 未收集到特征向量，无法进行特征可视化。请确保模型有get_features方法。")
+    else:
+        # 将所有批次的特征连接起来
+        test_features = np.vstack(test_features)
+        
+        # 使用T-SNE降维和可视化
+        if args.visualize_features == 1:
+            print("\n正在使用T-SNE进行特征降维...")
+            print(f"T-SNE参数: 困惑度={args.tsne_perplexity}, 迭代次数={args.tsne_n_iter}, 学习率={args.tsne_learning_rate}")
+            
+            # 计算合适的困惑度，避免值过大导致错误
+            perplexity = min(args.tsne_perplexity, len(test_features) - 1)
+            if perplexity != args.tsne_perplexity:
+                print(f"警告: 困惑度参数过大，已自动调整为 {perplexity}")
+            
+            # 使用T-SNE降维
+            tsne = TSNE(
+                n_components=2,
+                random_state=args.seed,
+                perplexity=perplexity,
+                n_iter=args.tsne_n_iter,
+                learning_rate=args.tsne_learning_rate
+            )
+            tsne_results = tsne.fit_transform(test_features)
+            
+            # 绘制T-SNE可视化图
+            plt.figure(figsize=(12, 10))
+            
+            # 定义类别标签和颜色
+            class_names = ['Standing', 'Running', 'Grazing', 'Trotting', 'Walking']
+            class_colors = ['#FF9999', '#66B2FF', '#99FF99', '#FFCC99', '#FF99CC']
+            
+            # 为每个类别绘制散点图
+            for i, class_name in enumerate(class_names):
+                # 找到属于当前类别的点
+                indices = np.array(test_target) == i
+                
+                # 绘制散点图
+                plt.scatter(
+                    tsne_results[indices, 0],
+                    tsne_results[indices, 1],
+                    c=class_colors[i],
+                    label=class_name,
+                    alpha=0.7,
+                    edgecolors='w',
+                    s=100
+                )
+            
+            # 添加标题和图例 - 使用英文替代中文
+            plt.title('T-SNE Feature Visualization', fontsize=20, fontweight='bold', pad=20)
+            plt.xlabel('t-SNE Dimension 1', fontsize=16, fontweight='bold')
+            plt.ylabel('t-SNE Dimension 2', fontsize=16, fontweight='bold')
+            plt.legend(fontsize=14, markerscale=1.5, loc='best')
+            plt.grid(True, linestyle='--', alpha=0.7)
+            
+            # 添加边框
+            ax = plt.gca()
+            ax.spines['top'].set_visible(True)
+            ax.spines['right'].set_visible(True)
+            ax.spines['bottom'].set_visible(True)
+            ax.spines['left'].set_visible(True)
+            
+            # 保存图像
+            plt.tight_layout()
+            plt.savefig(os.path.join(plots_dir, 'tsne_visualization.png'), dpi=300, bbox_inches='tight')
+            plt.close()
+            
+            print(f"T-SNE visualization saved to {os.path.join(plots_dir, 'tsne_visualization.png')}")
+            
+            # 额外绘制带有决策边界的T-SNE图
+            try:
+                print("Generating T-SNE visualization with decision boundaries...")
+                
+                # 创建网格
+                h = 0.1  # 网格步长
+                x_min, x_max = tsne_results[:, 0].min() - 1, tsne_results[:, 0].max() + 1
+                y_min, y_max = tsne_results[:, 1].min() - 1, tsne_results[:, 1].max() + 1
+                xx, yy = np.meshgrid(np.arange(x_min, x_max, h), np.arange(y_min, y_max, h))
+                
+                # 使用KNN分类器拟合T-SNE结果
+                knn = KNeighborsClassifier(n_neighbors=5)
+                knn.fit(tsne_results, test_target)
+                
+                # 预测网格点的类别
+                Z = knn.predict(np.c_[xx.ravel(), yy.ravel()])
+                Z = Z.reshape(xx.shape)
+                
+                # 绘制决策边界
+                plt.figure(figsize=(12, 10))
+                plt.contourf(xx, yy, Z, alpha=0.3, cmap=plt.cm.Spectral)
+                
+                # 绘制散点图
+                for i, class_name in enumerate(class_names):
+                    indices = np.array(test_target) == i
+                    plt.scatter(
+                        tsne_results[indices, 0],
+                        tsne_results[indices, 1],
+                        c=class_colors[i],
+                        label=class_name,
+                        alpha=0.8,
+                        edgecolors='k',
+                        s=80
+                    )
+                
+                plt.title('T-SNE Feature Visualization with Decision Boundaries', fontsize=20, fontweight='bold', pad=20)
+                plt.xlabel('t-SNE Dimension 1', fontsize=16, fontweight='bold')
+                plt.ylabel('t-SNE Dimension 2', fontsize=16, fontweight='bold')
+                plt.legend(fontsize=14, markerscale=1.5, loc='best')
+                
+                # 保存图像
+                plt.tight_layout()
+                plt.savefig(os.path.join(plots_dir, 'tsne_with_boundaries.png'), dpi=300, bbox_inches='tight')
+                plt.close()
+                
+                print(f"T-SNE visualization with decision boundaries saved to {os.path.join(plots_dir, 'tsne_with_boundaries.png')}")
+            except Exception as e:
+                print(f"Error generating decision boundaries: {str(e)}")
+        
     # 绘制混淆矩阵
     cm = confusion_matrix(test_target, test_predict)
 
@@ -1012,7 +1116,7 @@ if __name__ == '__main__':
         # 添加类别分布信息
         f.write('类别分布:\n')
         f.write('-' * 50 + '\n')
-        class_names = ['Standing', 'Running', 'Grazing', 'Trotting', 'Other']
+        class_names = ['Standing', 'Running', 'Grazing', 'Trotting', 'Walking']
         class_counts = np.bincount(test_target, minlength=args.num_classes)
         for i, (name, count) in enumerate(zip(class_names, class_counts)):
             f.write(f'类别 {i} ({name}): {count} 样本\n')

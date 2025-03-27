@@ -12,28 +12,23 @@ from torch.utils.data import DataLoader
 
 from dataset import My_Dataset
 
-# import wandb
-
 def get_network(args):
     """ return given network
     """
-
+    device = args.device if hasattr(args, 'device') else torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    
     if args.net == 'vgg16':
         from models.vgg import vgg16_bn
         net = vgg16_bn()
     elif args.net == 'PatchTST_wyh':
-        from models.PatchTST_wyh import PatchTST
-        net = PatchTST()
-    elif args.net == 'PatchTST':
-        from models.PatchTST import PatchTST
-        net = PatchTST()
-    elif args.net == 'GTN':
-        from models.GTN import GTN
-        net = GTN()
+        from models.PatchTST_wyh import PatchTST_wyh
+        net = PatchTST_wyh()
+    elif args.net == 'PatchTST_Classification':
+        from models.PatchTST import PatchTST_Classification
+        return PatchTST_Classification(args).to(device)
     elif args.net == 'vgg13':
         from models.vgg import vgg13_bn
         net = vgg13_bn()
-
     elif args.net == 'vgg11':
         from models.vgg import vgg11_bn
         net = vgg11_bn()
@@ -168,13 +163,7 @@ def get_network(args):
         print('the network name you have entered is not supported yet')
         sys.exit()
 
-    if args.gpu and torch.cuda.is_available():
-        net = net.to(torch.device("cuda:0"))
-    else:
-        net = net.to(torch.device("cpu"))
-
-
-    return net
+    return net.to(device)  # 统一在此处设置设备
 
 
 def get_mydataloader(pathway, data_id = 1, batch_size=16, num_workers=2, shuffle=True):
@@ -218,6 +207,4 @@ def get_weighted_mydataloader(pathway, data_id = 1, batch_size=16, num_workers=2
     return Data_loader, weight, number
 
 
-# def log_plot_to_wandb(run,fig, title):
-#     """Log a matplotlib figure to WandB."""
-#     run.log({title: wandb.Image(fig)})
+
