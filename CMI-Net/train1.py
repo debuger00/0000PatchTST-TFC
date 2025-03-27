@@ -142,7 +142,7 @@ def train(train_loader, network, optimizer, epoch, loss_function, samples_per_cl
             loss += reg_loss(network)
 
         # 反向传播计算梯度
-        loss.backward()
+        loss.backward() 
         
         torch.nn.utils.clip_grad_norm_(net.parameters(), max_norm=1.0) 
         # 更新模型参数
