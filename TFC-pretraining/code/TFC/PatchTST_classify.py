@@ -8,11 +8,11 @@ from torch import Tensor
 import torch.nn.functional as F
 import numpy as np
 
-# from layers.PatchTST_backbone import PatchTST_backbone
-# from layers.PatchTST_layers import series_decomp, positional_encoding
+from layers.PatchTST_backbone import PatchTST_backbone
+from layers.PatchTST_layers import series_decomp, positional_encoding
 
-from models.layers.PatchTST_backbone import PatchTST_backbone
-from models.layers.PatchTST_layers import series_decomp, positional_encoding
+# from models.layers.PatchTST_backbone import PatchTST_backbone
+# from models.layers.PatchTST_layers import series_decomp, positional_encoding
 
 
 
@@ -114,6 +114,8 @@ class PatchTST_Classification(nn.Module):
         elif x.dim() == 3 and x.shape[1] != self.c_in:
             x = x.transpose(1, 2)
         
+        # print(f"000输入x shape: {x.shape}")
+
         # 第一阶段特征提取
         if self.patch_backbone.padding_patch == 'end':
             x = self.patch_backbone.padding_patch_layer(x)
@@ -141,6 +143,66 @@ class PatchTST_Classification(nn.Module):
         # 展平特征用于分类
         features = features.reshape(bs, -1)  # [bs, nvars * d_model]
         
-        # 分类头
-        output = self.classifier(features)
-        return output
+        # # 分类头
+        # output = self.classifier(features)
+        # return output
+
+        ### wyh 预训练时候不需要分类头
+        return features
+
+
+
+if __name__ == "__main__":
+    import argparse
+    import platform
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--net', type=str, default='PatchTST_Classification', help='net type')
+    parser.add_argument('--gpu', type=int, default=1, help='use gpu or not')  # 选择是否使用 GPU（1 表示使用 GPU，0 表示使用 CPU）。
+    parser.add_argument('--b', type=int, default=256, help='batch size for dataloader')
+    parser.add_argument('--lr', type=float, default=0.00001, help='initial learning rate')
+    parser.add_argument('--epoch', type=int, default=150, help='total training epoches')
+    parser.add_argument('--seed', type=int, default=42, help='seed')
+    parser.add_argument('--gamma', type=float, default=0.5, help='the gamma of focal loss')
+    parser.add_argument('--beta', type=float, default=0.99, help='the beta of class balanced loss')
+    parser.add_argument('--weight_d', type=float, default=0.001, help='weight decay for regularization')
+    parser.add_argument('--reg_type', type=str, default='L2', choices=['L1', 'L2', 'none'], help='regularization type: L1, L2 or none')
+    parser.add_argument('--save_path', type=str, default='experiments/default_run',
+                        help='path for saving all outputs (checkpoints, logs, etc)') 
+    parser.add_argument('--data_path', type=str,
+                        default='./data/new_goat_25hz_3axis.pt', 
+                        help='saved path of input data')
+    parser.add_argument('--patience', type=int, default=25, help='patience for early stopping')
+    parser.add_argument('--num_classes', type=int, default=5, help='number of classes in the dataset')
+    parser.add_argument('--max_grad_norm', type=float, default=1.0, help='maximum gradient norm for gradient clipping')
+    parser.add_argument('--num_workers', type=int, default=8 if platform.system() != "Windows" else 0,
+                        help='number of workers for data loading')
+    parser.add_argument('--lr_decay', type=str, default='cyclic',
+                        choices=['cosine', 'step', 'cyclic', 'onecycle', 'plateau'],
+                        help='learning rate decay type: cosine/step/cyclic/onecycle/plateau (default: cosine)')
+    parser.add_argument('--optimizer', type=str, default='adamw',
+                        choices=['adamw', 'adam', 'sgd', 'lion'],
+                        help='optimizer to use: adamw/adam/sgd/lion (default: adamw)')
+    parser.add_argument('--warmup_epochs', type=int, default=5, help='number of warmup epochs')
+    parser.add_argument('--min_lr', type=float, default=1e-6, help='minimum learning rate')
+    parser.add_argument('--cycle_epochs', type=int, default=10, help='number of epochs per cycle for cyclic lr')
+    parser.add_argument('--device', type=str, default='cuda:0' if torch.cuda.is_available() else 'cpu',help='device to use')
+    parser.add_argument('--use_mixed_loss', type=int, default=1, help='loss type: 0 for CB Loss only, 1 for CB-CE mixed loss')
+    parser.add_argument('--ce_weight', type=float, default=0.2, help='weight of CE Loss in CB-CE mixed loss')
+    parser.add_argument('--weight_smooth', type=int, default=1, help='whether to apply weight smoothing: 0 for no smoothing, 1 for log smoothing')
+    parser.add_argument('--focal_alpha', type=float, default=None, help='alpha parameter for focal loss, if None, use class weights')
+    # T-SNE可视化相关参数
+    parser.add_argument('--tsne_perplexity', type=float, default=30.0, help='T-SNE困惑度参数，影响局部结构保留程度')
+    parser.add_argument('--tsne_n_iter', type=int, default=1000, help='T-SNE迭代次数，影响结果质量和运行时间')
+    parser.add_argument('--tsne_learning_rate', type=float, default=200.0, help='T-SNE学习率，影响收敛速度')
+    parser.add_argument('--visualize_features', type=int, default=0, help='是否进行特征可视化: 0为否，1为是')
+
+    args = parser.parse_args()
+
+
+    
+    model = PatchTST_Classification(configs=args)
+    # Create a random tensor with shape [Batch, Input length, Channel]
+    random_input = torch.randn(8, 3,50)  # Example: Batch size of 8
+    output = model(random_input)
+    print(output.shape)
+    # print("Output:", output)

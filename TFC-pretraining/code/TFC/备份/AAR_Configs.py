@@ -41,32 +41,6 @@ class Config(object):
         self.augmentation = augmentations()        # 数据增强配置
 
 ############################################################################################################
-   
-        self.num_classes =  5
-        self.c_in =  3
-        context_window = 50
-        
-        n_layers = 1
-        n_heads =  8
-        self.d_model =  128 # Store d_model as an instance variable
-        d_ff = 256
-        dropout =  0.1
-        fc_dropout =  0.5
-        head_dropout =  0.1
-        
-        individual = False
-    
-        patch_len =6
-        stride = 3
-        padding_patch = 'end'
-        
-        
-        # 计算patch数量
-        patch_num = int((context_window - patch_len)/stride + 1)
-        if padding_patch == 'end':
-            patch_num += 1
-   
-   
     #      # 基础参数
     #     # 基础参数
     #     self.enc_in = 3         # 输入特征维度

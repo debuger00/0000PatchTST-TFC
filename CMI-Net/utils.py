@@ -24,7 +24,7 @@ def get_network(args):
         from models.PatchTST_wyh import PatchTST_wyh
         net = PatchTST_wyh()
     elif args.net == 'PatchTST_Classification':
-        from models.PatchTST import PatchTST_Classification
+        from models.PatchTST_classify import PatchTST_Classification
         return PatchTST_Classification(args).to(device)
     elif args.net == 'vgg13':
         from models.vgg import vgg13_bn
