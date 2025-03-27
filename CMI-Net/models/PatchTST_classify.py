@@ -1,4 +1,4 @@
-__all__ = ['PatchTST', 'PatchTST_Classification']
+__all__ = ['PatchTST_Classification']
 
 # Cell
 from typing import Callable, Optional
@@ -8,43 +8,70 @@ from torch import Tensor
 import torch.nn.functional as F
 import numpy as np
 
-# from layers.PatchTST_backbone import PatchTST_backbone
-# from layers.PatchTST_layers import series_decomp, positional_encoding
-
 from models.layers.PatchTST_backbone import PatchTST_backbone
 from models.layers.PatchTST_layers import series_decomp, positional_encoding
 
+
+
+class Configs:
+    def __init__(self):
+        # 基础参数
+        self.enc_in = 3  # 输入特征维度
+        self.seq_len = 50  # 输入序列长度
+        self.pred_len = 0  # 分类任务不需要预测长度
+        
+        # 模型结构参数
+        self.e_layers = 1  # encoder层数
+        self.n_heads = 8  # 注意力头数
+        self.d_model = 128  # 模型维度
+        self.d_ff = 256  # 前馈网络维度
+        self.dropout = 0.1  # dropout率
+        self.fc_dropout = 0.5  # 全连接层dropout率
+        self.head_dropout = 0.1  # 输出头dropout率
+        
+        # Patch相关参数
+        self.patch_len = 6  # patch长度
+        self.stride = 3  # patch步长
+        self.padding_patch = 'end'  # patch填充方式
+        
+        # 其他参数
+        self.individual = False  # 是否独立处理每个特征
+        self.num_classes = 5  # 分类类别数
 
 
 class PatchTST_Classification(nn.Module):
     """
     patchtst分类
     """
-    def __init__(self, configs, max_seq_len:Optional[int]=1024, d_k:Optional[int]=None, d_v:Optional[int]=None, norm:str='BatchNorm', attn_dropout:float=0., 
+    def __init__(self, args=None, max_seq_len:Optional[int]=1024, d_k:Optional[int]=None, d_v:Optional[int]=None, norm:str='BatchNorm', attn_dropout:float=0., 
                  act:str="gelu", key_padding_mask:bool='auto',padding_var:Optional[int]=None, attn_mask:Optional[Tensor]=None, res_attention:bool=True, 
                  pre_norm:bool=False, store_attn:bool=False, pe:str='zeros', learn_pe:bool=True, pretrain_head:bool=False, head_type:str='flatten', 
                  verbose:bool=False, **kwargs):
         
         super().__init__()
         
-        self.num_classes = getattr(configs, 'num_classes', 5)  
-        self.c_in = getattr(configs, 'enc_in', 3)  
-        context_window = getattr(configs, 'seq_len', 50)  
+        if args is None:
+            configs = Configs()
+        else:
+            configs = args
+            
+        self.num_classes = configs.num_classes
+        self.c_in = configs.enc_in
+        context_window = configs.seq_len
         
-        n_layers = getattr(configs, 'e_layers', 1)
-        n_heads = getattr(configs, 'n_heads', 8)
-        self.d_model = getattr(configs, 'd_model', 128)  # Store d_model as an instance variable
-        d_ff = getattr(configs, 'd_ff', 256)
-        dropout = getattr(configs, 'dropout', 0.1)
-        fc_dropout = getattr(configs, 'fc_dropout', 0.5)
-        head_dropout = getattr(configs, 'head_dropout', 0.1)
+        n_layers = configs.e_layers
+        n_heads = configs.n_heads
+        self.d_model = configs.d_model
+        d_ff = configs.d_ff
+        dropout = configs.dropout
+        fc_dropout = configs.fc_dropout
+        head_dropout = configs.head_dropout
         
-        individual = getattr(configs, 'individual', False)
+        individual = configs.individual
     
-        patch_len = getattr(configs, 'patch_len', 6)
-        stride = getattr(configs, 'stride', 3)
-        padding_patch = getattr(configs, 'padding_patch', 'end')
-        
+        patch_len = configs.patch_len
+        stride = configs.stride
+        padding_patch = configs.padding_patch
         
         # 计算patch数量
         patch_num = int((context_window - patch_len)/stride + 1)
@@ -144,3 +171,7 @@ class PatchTST_Classification(nn.Module):
         # 分类头
         output = self.classifier(features)
         return output
+
+def patchtst_classification():
+    configs = Configs()
+    return PatchTST_Classification(configs)

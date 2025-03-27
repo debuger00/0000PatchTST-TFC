@@ -2,7 +2,7 @@ from torch import nn
 import torch
 from torch.nn import TransformerEncoder, TransformerEncoderLayer
 import torch.nn.functional as F
-from PatchTST_classify import PatchTST_Classification
+from PatchTST_classify import patchtst_classification
 import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -13,12 +13,12 @@ from config_files.AAR_Configs import Config
 
 """Two contrastive encoders"""
 class TFC(nn.Module):
-    def __init__(self,configs):
+    def __init__(self, configs):
         super(TFC, self).__init__()
         
         
-        self.encoder_t = PatchTST_Classification(configs)
-        self.encoder_f = PatchTST_Classification(configs)
+        self.encoder_t = patchtst_classification()
+        self.encoder_f = patchtst_classification()
         
         # 保持原有的投影头
         self.projector_t = nn.Sequential(
@@ -43,7 +43,7 @@ class TFC(nn.Module):
         # print(f"000时间域特征 h_time shape: {x_in_t.shape}")  # 应该是 [128, 3,50]
         h_time = self.encoder_t(x_in_t)  
         #输出 h_time shape: torch.Size([128, 1, 178])
-        print(f"001时间域特征 h_time shape: {h_time.shape}")
+        # print(f"001时间域特征 h_time shape: {h_time.shape}")
 
         h_time = h_time.flatten(1)  # [batch_size, feature_dim]  等价于 h_time = h_time.reshape(h_time.shape[0], -1)
         # print(f"001时间域特征 h_time shape: {h_time.shape}")  # 应该是 [128, 2816]

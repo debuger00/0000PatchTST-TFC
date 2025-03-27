@@ -41,30 +41,30 @@ class Config(object):
         self.augmentation = augmentations()        # 数据增强配置
 
 ############################################################################################################
-   
-        self.num_classes =  5
-        self.c_in =  3
-        context_window = 50
+        # # 基础参数
+        # self.enc_in = 3  # 输入特征维度
+        # self.seq_len = 50  # 输入序列长度
+        # self.pred_len = 0  # 分类任务不需要预测长度
         
-        n_layers = 1
-        n_heads =  8
-        self.d_model =  128 # Store d_model as an instance variable
-        d_ff = 256
-        dropout =  0.1
-        fc_dropout =  0.5
-        head_dropout =  0.1
+        # # 模型结构参数
+        # self.e_layers = 1  # encoder层数
+        # self.n_heads = 8  # 注意力头数
+        # self.d_model = 128  # 模型维度
+        # self.d_ff = 256  # 前馈网络维度
+        # self.dropout = 0.1  # dropout率
+        # self.fc_dropout = 0.5  # 全连接层dropout率
+        # self.head_dropout = 0.1  # 输出头dropout率
         
-        individual = False
-    
-        patch_len =6
-        stride = 3
-        padding_patch = 'end'
+        # # Patch相关参数
+        # self.patch_len = 6  # patch长度
+        # self.stride = 3  # patch步长
+        # self.padding_patch = 'end'  # patch填充方式
         
-        
-        # 计算patch数量
-        patch_num = int((context_window - patch_len)/stride + 1)
-        if padding_patch == 'end':
-            patch_num += 1
+        # # 其他参数
+        # self.individual = False  # 是否独立处理每个特征
+        # self.num_classes = 5  # 分类类别数
+
+
    
    
     #      # 基础参数
