@@ -3,6 +3,8 @@
 author axiumao
 """
 
+import os
+import random
 import sys
 import torch
 
@@ -23,6 +25,9 @@ def get_network(args):
     elif args.net == 'PatchTST_wyh':
         from models.PatchTST_wyh import PatchTST_wyh
         net = PatchTST_wyh()
+    elif args.net == 'ConvTrans':
+        from models.convtran import ConvTransformer
+        net = ConvTransformer()
     elif args.net == 'PatchTST_Classification':
         from models.PatchTST_classify import patchtst_classification
         net = patchtst_classification()
@@ -208,3 +213,23 @@ def get_weighted_mydataloader(pathway, data_id = 1, batch_size=16, num_workers=2
 
 
 
+def set_seed(seed):
+    # seed init.
+    random.seed(seed)
+    np.random.seed(seed)
+    os.environ['PYTHONHASHSEED'] = str(seed)
+
+    # torch seed init.
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    torch.backends.cudnn.enabled = False # train speed is slower after enabling this opts.
+
+    # https://pytorch.org/docs/stable/generated/torch.use_deterministic_algorithms.html
+    os.environ['CUBLAS_WORKSPACE_CONFIG'] = ':16:8'
+
+    # avoiding nondeterministic algorithms (see https://pytorch.org/docs/stable/notes/randomness.html)
+    torch.use_deterministic_algorithms(True)
