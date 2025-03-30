@@ -11,3 +11,7 @@ PatchTST.py
 *.pptx
 *.xlsx
 *.docx
+run/
+CMI-Net/experiments/
+CMI-Net/wandb/
+TFC-pretraining/experiments_logs/
