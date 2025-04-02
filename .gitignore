@@ -17,3 +17,4 @@ CMI-Net/wandb/
 TFC-pretraining/experiments_logs/
 CMI-Net/checkpoints/
 TFC-pretraining/code/experiments_logs
+*.pth
