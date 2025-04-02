@@ -248,12 +248,12 @@ if __name__ == '__main__':
     parser.add_argument('--gpu', type = int, default=1, help='use gpu or not')  # 选择是否使用 GPU（1 表示使用 GPU，0 表示使用 CPU）。
     parser.add_argument('--b', type=int, default=512, help='batch size for dataloader')
     parser.add_argument('--lr', type=float, default=0.0001, help='initial learning rate')
-    parser.add_argument('--epoch',type=int, default=100, help='total training epoches')
+    parser.add_argument('--epoch',type=int, default=200, help='total training epoches')
     parser.add_argument('--seed',type=int, default=10, help='seed')
-    parser.add_argument('--gamma',type=float, default=0.5, help='the gamma of focal loss')
+    parser.add_argument('--gamma',type=float, default=1.5, help='the gamma of focal loss')
     parser.add_argument('--beta',type=float, default=0.9999, help='the beta of class balanced loss')
     parser.add_argument('--weight_d',type=float, default=0.004, help='weight decay for regularization')  # 权重衰减 系数 
-    parser.add_argument('--save_path',type=str, default='setting0', help='saved path of each setting') #
+    parser.add_argument('--save_path',type=str, default='setting1', help='saved path of each setting') #
     # parser.add_argument('--data_path',type=str, default='E:\\program\\aaa_DL_project\\0000PatchTST-TFC\\CMI-Net\\data\\new_goat_25hz_3axis.pt', help='saved path of input data')
     # parser.add_argument('--data_path',type=str, default='E:\\program\\aaa_DL_project\\0000PatchTST-TFC\\CMI-Net\\data\\00goat.pt', help='saved path of input data')
     parser.add_argument('--data_path',type=str, default='./data/001goat.pt', help='saved path of input data')
@@ -351,6 +351,9 @@ if __name__ == '__main__':
     train_loader, weight_train, number_train = get_weighted_mydataloader(pathway, data_id=0, batch_size=args.b, num_workers=num_workers, shuffle=True) # weight_train 是每个类别的权重 ，number_train 是每个类别的样本数量
     valid_loader = get_mydataloader(pathway, data_id=1, batch_size=args.b, num_workers=num_workers, shuffle=True)
     test_loader = get_mydataloader(pathway, data_id=2, batch_size=args.b, num_workers=num_workers, shuffle=True)
+    # test_loader = get_mydataloader(pathway, data_id=1, batch_size=args.b, num_workers=num_workers, shuffle=True)
+    # valid_loader = get_mydataloader(pathway, data_id=2, batch_size=args.b, num_workers=num_workers, shuffle=True)
+
     
     if args.weight_d > 0:
         reg_loss=Regularization(net, args.weight_d, p=2) # 正则化损失函数
@@ -414,7 +417,7 @@ if __name__ == '__main__':
             best_epoch = epoch
             torch.save(net.state_dict(), best_weights_path)
     print('best epoch is {}'.format(best_epoch))
-
+    torch.save(net.state_dict(), best_weights_path)
 
     #plot accuracy varying over time
     font_1 = {'weight' : 'normal', 'size'   : 20}

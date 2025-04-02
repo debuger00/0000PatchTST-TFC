@@ -268,14 +268,14 @@ if __name__ == '__main__':
     parser.add_argument('--gamma',type=float, default=5.0, help='the gamma of focal loss')
     parser.add_argument('--beta',type=float, default=0.9999, help='the beta of class balanced loss')
     parser.add_argument('--weight_d',type=float, default=0.001, help='weight decay for regularization')  # 权重衰减 系数 
-    parser.add_argument('--save_path',type=str, default='setting0', help='saved path of each setting') #
+    parser.add_argument('--save_path',type=str, default='setting1', help='saved path of each setting') #
     # parser.add_argument('--data_path',type=str, default='E:\\program\\aaa_DL_project\\0000PatchTST-TFC\\CMI-Net\\data\\new_goat_25hz_3axis.pt', help='saved path of input data')
     # parser.add_argument('--data_path',type=str, default='E:\\program\\aaa_DL_project\\0000PatchTST-TFC\\CMI-Net\\data\\00goat.pt', help='saved path of input data')
-    parser.add_argument('--data_path',type=str, default='./data/00goat.pt', help='saved path of input data')
+    parser.add_argument('--data_path',type=str, default='./data/001goat.pt', help='saved path of input data')
    
     parser.add_argument('--loss_ratio', type=float, default=0.9, help='ratio of CB loss in total loss')
   
-   
+    print("##########################setting1")
     args = parser.parse_args()
     
     model_configs = Configs()

@@ -31,7 +31,7 @@ class Config(object):
 
         # 数据参数
         self.drop_last = True    # 是否丢弃最后不完整的batch
-        self.batch_size = 128    # 训练batch大小
+        self.batch_size = 256    # 训练batch大小
         """对于Epilepsy数据集,目标batch大小为60"""
         self.target_batch_size = 60   # 目标数据集batch大小(用于fine-tune的样本数)
 
