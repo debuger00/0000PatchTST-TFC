@@ -1,1 +1,0 @@
-Setting: Seed:10, Epoch: 100, Batch size: 256, Learning rate: 0.000100, Weight decay: 0.1, gpu:1, Data path: E:\program\aaa_DL_project\0000PatchTST-TFC\CMI-Net\data\new_goat_25hz_3axis.pt, Saved path: setting0
