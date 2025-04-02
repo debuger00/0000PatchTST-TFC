@@ -33,7 +33,9 @@ if __name__ == '__main__':
     checkpoint_path_sum = os.path.join(checkpoint_path,"setting999",args.time)
 
     test_target = torch.cat([test_target_0, test_target_1, test_target_2, test_target_3, test_target_4, test_target_5], dim=0)
-    test_predict = torch.cat([test_predict_0, test_predict_1, test_predict_2, test_predict_3, test_predict_4], dim=0)
+    test_predict = torch.cat([test_predict_0, test_predict_1, test_predict_2, test_predict_3, test_predict_4, test_predict_5], dim=0)
+
+    assert len(test_target) == len(test_predict), f"预测结果长度 ({len(test_predict)}) 与目标长度 ({len(test_target)}) 不一致"
 
     Class_labels = ['standing', 'running', 'grazing', 'trotting', 'walking']
     def show_confusion_matrix(validations, predictions):
