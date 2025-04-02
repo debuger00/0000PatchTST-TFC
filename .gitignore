@@ -15,6 +15,10 @@ run/
 CMI-Net/experiments/
 CMI-Net/wandb/
 TFC-pretraining/experiments_logs/
-CMI-Net/checkpoints/
+CMI-Net/checkpoint/
 TFC-pretraining/code/experiments_logs
 *.pth
+
+# 忽略空目录，但保留 .gitkeep 文件
+*/
+!.gitkeep
