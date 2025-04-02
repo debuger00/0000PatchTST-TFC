@@ -28,4 +28,4 @@ python train5_ConvTrans_auto.py  --data_path './data/003goat.pt' --save_path "se
 python train5_ConvTrans_auto.py  --data_path './data/004goat.pt' --save_path "setting004/${current_time}"
 python train5_ConvTrans_auto.py  --data_path './data/005goat.pt' --save_path "setting005/${current_time}"
 
-python 五折汇总.py --save_path "setting999${current_time}"
+python 五折汇总.py --save_path "setting999${current_time}" --time ${current_time}
